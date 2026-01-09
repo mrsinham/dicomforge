@@ -76,3 +76,63 @@ def test_calculate_dimensions_rounds_to_reasonable():
 
     # Should be multiple of 256 or close
     assert width % 256 == 0 or (width % 128 == 0)
+
+
+from generate_dicom_mri import generate_metadata
+from datetime import datetime
+
+
+def test_generate_metadata_creates_dataset():
+    """Test that metadata generator creates valid dataset."""
+    ds = generate_metadata(num_images=10, width=512, height=512)
+
+    # Check basic DICOM tags exist
+    assert hasattr(ds, 'PatientID')
+    assert hasattr(ds, 'StudyInstanceUID')
+    assert hasattr(ds, 'SeriesInstanceUID')
+    assert hasattr(ds, 'Modality')
+
+    # Check modality is MR
+    assert ds.Modality == 'MR'
+
+
+def test_generate_metadata_has_patient_info():
+    """Test patient information is generated."""
+    ds = generate_metadata(num_images=10, width=512, height=512)
+
+    assert hasattr(ds, 'PatientName')
+    assert hasattr(ds, 'PatientBirthDate')
+    assert hasattr(ds, 'PatientSex')
+    assert ds.PatientSex in ['M', 'F']
+
+
+def test_generate_metadata_has_mri_params():
+    """Test MRI-specific parameters are realistic."""
+    ds = generate_metadata(num_images=10, width=512, height=512)
+
+    # Check manufacturer info
+    assert hasattr(ds, 'Manufacturer')
+    assert ds.Manufacturer in ['SIEMENS', 'GE MEDICAL SYSTEMS', 'PHILIPS']
+
+    # Check MRI parameters
+    assert hasattr(ds, 'MagneticFieldStrength')
+    assert ds.MagneticFieldStrength in [1.5, 3.0]
+
+    assert hasattr(ds, 'EchoTime')
+    assert hasattr(ds, 'RepetitionTime')
+
+
+def test_generate_metadata_multi_frame():
+    """Test multi-frame specific tags."""
+    num_images = 120
+    ds = generate_metadata(num_images=num_images, width=512, height=512)
+
+    assert ds.NumberOfFrames == num_images
+    assert ds.SamplesPerPixel == 1
+    assert ds.PhotometricInterpretation == 'MONOCHROME2'
+    assert ds.Rows == 512
+    assert ds.Columns == 512
+    assert ds.BitsAllocated == 16
+    assert ds.BitsStored == 16
+    assert ds.HighBit == 15
+    assert ds.PixelRepresentation == 0  # unsigned
