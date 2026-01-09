@@ -15,6 +15,7 @@ import numpy as np
 import argparse
 import sys
 import os
+from pydicom.fileset import FileSet
 
 
 def parse_size(size_str):
@@ -392,6 +393,29 @@ def main():
 
         print(f"\n✓ {args.num_images} fichiers DICOM créés dans: {output_dir}/")
         print(f"  Taille totale: {format_bytes(total_size)}")
+
+        # Create DICOMDIR file
+        print("\nCréation du fichier DICOMDIR...")
+        try:
+            fs = FileSet()
+
+            # Add all DICOM files to the fileset
+            for i in range(1, args.num_images + 1):
+                filename = f"IMG{i:04d}.dcm"
+                filepath = os.path.join(output_dir, filename)
+                fs.add(filepath)
+
+            # Write DICOMDIR
+            dicomdir_path = os.path.join(output_dir, "DICOMDIR")
+            fs.write(dicomdir_path)
+
+            print(f"✓ DICOMDIR créé: {dicomdir_path}")
+            print(f"\nLa série DICOM est prête à être importée!")
+            print(f"Importez le dossier complet: {output_dir}/")
+
+        except Exception as e:
+            print(f"Attention: Erreur lors de la création du DICOMDIR: {e}")
+            print(f"Les fichiers DICOM sont valides, mais le DICOMDIR n'a pas pu être créé.")
 
         return 0
 

@@ -16,9 +16,10 @@ pip install -r requirements.txt
 python generate_dicom_mri.py --num-images 120 --total-size 1GB --output mri_series
 ```
 
-Cela créera un dossier `mri_series/` contenant 120 fichiers DICOM individuels:
+Cela créera un dossier `mri_series/` contenant 120 fichiers DICOM individuels + fichier DICOMDIR:
 ```
 mri_series/
+├── DICOMDIR       # Fichier d'index de la série
 ├── IMG0001.dcm
 ├── IMG0002.dcm
 ├── ...
@@ -56,6 +57,7 @@ Après génération, importez **l'intégralité du dossier** dans votre platefor
 ## Caractéristiques
 
 - ✅ Génère des fichiers DICOM individuels (format standard)
+- ✅ **Fichier DICOMDIR** automatiquement créé (index de la série)
 - ✅ Tous les fichiers partagent le même Study UID et Series UID
 - ✅ Chaque fichier a un InstanceNumber unique (ordre de la série)
 - ✅ Métadonnées MRI réalistes (SIEMENS, GE, PHILIPS)
