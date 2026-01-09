@@ -58,9 +58,11 @@ Après génération, importez **l'intégralité du dossier** dans votre platefor
 
 - ✅ Génère des fichiers DICOM individuels (format standard)
 - ✅ **Fichier DICOMDIR** automatiquement créé (index de la série)
+- ✅ **Texte "File X/Y"** incrusté sur chaque image pour vérification visuelle
 - ✅ Tous les fichiers partagent le même Study UID et Series UID
 - ✅ Chaque fichier a un InstanceNumber unique (ordre de la série)
 - ✅ Métadonnées MRI réalistes (SIEMENS, GE, PHILIPS)
+- ✅ Tags Window/Level pour affichage dans viewers médicaux
 - ✅ Compatible avec plateformes médicales PACS
 - ✅ Reproductible avec seed
 
