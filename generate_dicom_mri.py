@@ -195,6 +195,28 @@ def generate_metadata(num_images, width, height, instance_number=None, study_uid
     pixel_spacing = random.uniform(0.5, 2.0)
     ds.PixelSpacing = [pixel_spacing, pixel_spacing]
 
+    # Image Position and Orientation (for 3D reconstruction)
+    if instance_number is not None:
+        # Position changes along Z axis for each slice
+        slice_position = (instance_number - 1) * ds.SliceThickness
+        ds.ImagePositionPatient = [0.0, 0.0, slice_position]
+        # Standard axial orientation
+        ds.ImageOrientationPatient = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+
+    # Window Center and Window Width (for display)
+    # These are critical for image visualization in medical viewers
+    # For 12-bit data (0-4095), use middle of range
+    ds.WindowCenter = "2048"  # Middle of 0-4095 range
+    ds.WindowWidth = "4096"   # Full range
+
+    # Can also provide as list for multiple window presets
+    ds.WindowCenterWidthExplanation = "Full Range"
+
+    # Rescale intercept and slope (for Hounsfield units in CT, identity for MR)
+    ds.RescaleIntercept = "0"
+    ds.RescaleSlope = "1"
+    ds.RescaleType = "US"  # Unspecified
+
     return ds
 
 
