@@ -12,6 +12,9 @@ func TestParseSize_ValidSizes(t *testing.T) {
 		{"1.5GB", 1610612736},
 		{"500MB", 524288000},
 		{"0.5KB", 512},
+		{"0KB", 0},
+		{"0MB", 0},
+		{"0GB", 0},
 	}
 
 	for _, tt := range tests {

@@ -6,14 +6,14 @@ import (
 	"strconv"
 )
 
+var sizePattern = regexp.MustCompile(`^(\d+(?:\.\d+)?)(KB|MB|GB)$`)
+
 // ParseSize parses a size string (e.g., "4.5GB", "100MB") into bytes.
 //
 // Supported units: KB, MB, GB
 // Returns the size in bytes or an error if the format is invalid.
 func ParseSize(sizeStr string) (int64, error) {
-	pattern := `^(\d+(?:\.\d+)?)(KB|MB|GB)$`
-	re := regexp.MustCompile(pattern)
-	matches := re.FindStringSubmatch(sizeStr)
+	matches := sizePattern.FindStringSubmatch(sizeStr)
 
 	if matches == nil {
 		return 0, fmt.Errorf("invalid format: '%s'. Use format like '100MB', '4.5GB'", sizeStr)
@@ -31,10 +31,7 @@ func ParseSize(sizeStr string) (int64, error) {
 		"GB": 1024 * 1024 * 1024,
 	}
 
-	multiplier, ok := multipliers[unit]
-	if !ok {
-		return 0, fmt.Errorf("unsupported unit: '%s'. Use KB, MB, or GB", unit)
-	}
+	multiplier := multipliers[unit]
 
 	return int64(value * float64(multiplier)), nil
 }
