@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-	"image/draw"
 
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/basicfont"
@@ -17,31 +16,31 @@ import (
 // for visibility against varying backgrounds. Uses basicfont for simplicity;
 // full TrueType font rendering can be added later using golang.org/x/image/font/opentype.
 //
-// The function converts the uint16 pixel data to an image, draws the text,
-// and converts back to uint16, ensuring all values remain in the valid 12-bit
-// range (0-4095).
+// The function converts the uint16 pixel data to RGBA for drawing, then converts
+// back to uint16, ensuring all values remain in the valid 12-bit range (0-4095).
+// Optimized to use only 2 conversion passes instead of 5.
 func AddTextOverlay(pixels []uint16, width, height, imageNum, totalImages int) error {
+	// Validate inputs
+	if width <= 0 || height <= 0 {
+		return fmt.Errorf("invalid dimensions: %dx%d", width, height)
+	}
 	if len(pixels) != width*height {
 		return fmt.Errorf("pixel slice length %d does not match dimensions %dx%d", len(pixels), width, height)
 	}
+	if imageNum < 1 || totalImages < 1 || imageNum > totalImages {
+		return fmt.Errorf("invalid image numbering: %d/%d", imageNum, totalImages)
+	}
 
-	// Convert uint16 pixels to Gray16 image for manipulation
-	img := image.NewGray16(image.Rect(0, 0, width, height))
+	// Pass 1: Convert to RGBA for drawing (scale 12-bit to 8-bit)
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
 			idx := y*width + x
-			// Scale from 12-bit (0-4095) to 16-bit (0-65535) for better contrast
-			val := uint32(pixels[idx]) * 16
-			if val > 65535 {
-				val = 65535
-			}
-			img.SetGray16(x, y, color.Gray16{Y: uint16(val)})
+			// Scale 12-bit (0-4095) to 8-bit (0-255)
+			gray := uint8((uint32(pixels[idx]) * 255) / 4095)
+			img.SetRGBA(x, y, color.RGBA{gray, gray, gray, 255})
 		}
 	}
-
-	// Create RGBA image for drawing (easier to draw text with colors)
-	rgba := image.NewRGBA(img.Bounds())
-	draw.Draw(rgba, rgba.Bounds(), img, image.Point{}, draw.Src)
 
 	// Prepare text
 	text := fmt.Sprintf("File %d/%d", imageNum, totalImages)
@@ -62,7 +61,7 @@ func AddTextOverlay(pixels []uint16, width, height, imageNum, totalImages int) e
 
 	// Create a drawer
 	drawer := &font.Drawer{
-		Dst:  rgba,
+		Dst:  img,
 		Src:  image.NewUniform(color.Black),
 		Face: face,
 		Dot:  fixed.P(x, y),
@@ -84,25 +83,19 @@ func AddTextOverlay(pixels []uint16, width, height, imageNum, totalImages int) e
 	drawer.Dot = fixed.P(x, y)
 	drawer.DrawString(text)
 
-	// Convert back to grayscale
-	gray := image.NewGray(rgba.Bounds())
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
-			gray.Set(x, y, rgba.At(x, y))
-		}
-	}
-
-	// Convert back to uint16 pixels and scale back to 12-bit range (0-4095)
+	// Pass 2: Convert back to uint16 (scale 8-bit to 12-bit)
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
 			idx := y*width + x
-			grayColor := gray.GrayAt(x, y)
-			// Scale from 8-bit (0-255) to 12-bit (0-4095)
-			val := uint32(grayColor.Y) * 16
-			if val > 4095 {
-				val = 4095
+			r, g, b, _ := img.At(x, y).RGBA()
+			// RGBA() returns 16-bit values (0-65535), convert to 8-bit first
+			gray8 := uint8((r + g + b) / (3 * 256))
+			// Scale 8-bit (0-255) to 12-bit (0-4095) correctly
+			pixels[idx] = uint16((uint32(gray8) * 4095) / 255)
+			// Clamp to 12-bit range
+			if pixels[idx] > 4095 {
+				pixels[idx] = 4095
 			}
-			pixels[idx] = uint16(val)
 		}
 	}
 
