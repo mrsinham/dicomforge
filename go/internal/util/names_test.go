@@ -48,22 +48,6 @@ func TestGeneratePatientName_Deterministic(t *testing.T) {
 }
 
 func TestGeneratePatientName_Sex(t *testing.T) {
-	maleFirstNames := []string{
-		"Jean", "Pierre", "Michel", "André", "Philippe", "Alain", "Bernard", "Jacques",
-		"François", "Christian", "Daniel", "Patrick", "Nicolas", "Olivier", "Laurent",
-		"Thierry", "Stéphane", "Éric", "David", "Julien", "Christophe", "Pascal",
-		"Sébastien", "Marc", "Vincent", "Antoine", "Alexandre", "Maxime", "Thomas",
-		"Lucas", "Hugo", "Louis", "Arthur", "Gabriel", "Raphaël", "Paul", "Jules",
-	}
-
-	femaleFirstNames := []string{
-		"Marie", "Nathalie", "Isabelle", "Sylvie", "Catherine", "Françoise", "Valérie",
-		"Christine", "Monique", "Sophie", "Patricia", "Martine", "Nicole", "Sandrine",
-		"Stéphanie", "Céline", "Julie", "Aurélie", "Caroline", "Laurence", "Émilie",
-		"Claire", "Anne", "Camille", "Laura", "Sarah", "Manon", "Emma", "Léa",
-		"Chloé", "Zoé", "Alice", "Charlotte", "Lucie", "Juliette", "Louise",
-	}
-
 	// Test male names
 	for i := 0; i < 10; i++ {
 		name := GeneratePatientName("M", nil)
@@ -71,7 +55,7 @@ func TestGeneratePatientName_Sex(t *testing.T) {
 		firstName := parts[1]
 
 		found := false
-		for _, mn := range maleFirstNames {
+		for _, mn := range MaleFirstNames {
 			if mn == firstName {
 				found = true
 				break
@@ -89,7 +73,7 @@ func TestGeneratePatientName_Sex(t *testing.T) {
 		firstName := parts[1]
 
 		found := false
-		for _, fn := range femaleFirstNames {
+		for _, fn := range FemaleFirstNames {
 			if fn == firstName {
 				found = true
 				break
