@@ -60,3 +60,27 @@ func TestGenerateSingleImage_Different(t *testing.T) {
 		t.Errorf("Different seeds should produce different pixel data")
 	}
 }
+
+func TestGenerateSingleImage_InvalidDimensions(t *testing.T) {
+	tests := []struct {
+		name   string
+		width  int
+		height int
+	}{
+		{"zero width", 0, 100},
+		{"zero height", 100, 0},
+		{"negative width", -10, 100},
+		{"negative height", 100, -10},
+		{"both zero", 0, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pixels := GenerateSingleImage(tt.width, tt.height, 42)
+			if pixels != nil {
+				t.Errorf("Expected nil for invalid dimensions (%dx%d), got %d pixels",
+					tt.width, tt.height, len(pixels))
+			}
+		})
+	}
+}
