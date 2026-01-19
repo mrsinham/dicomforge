@@ -3,6 +3,8 @@ package dicom
 import (
 	"fmt"
 	"hash/fnv"
+	"image"
+	"image/color"
 	"math"
 	randv2 "math/rand/v2"
 	"os"
@@ -12,6 +14,9 @@ import (
 	"github.com/suyashkumar/dicom"
 	"github.com/suyashkumar/dicom/pkg/frame"
 	"github.com/suyashkumar/dicom/pkg/tag"
+	"golang.org/x/image/font"
+	"golang.org/x/image/font/basicfont"
+	"golang.org/x/image/math/fixed"
 )
 
 // writeDatasetToFile writes a DICOM dataset to a file
@@ -23,6 +28,78 @@ func writeDatasetToFile(filename string, ds dicom.Dataset) error {
 	defer f.Close()
 
 	return dicom.Write(f, ds)
+}
+
+// drawTextOnFrame draws text overlay on a uint16 frame
+func drawTextOnFrame(nativeFrame *frame.NativeFrame[uint16], width, height int, text string) {
+	// Create an RGBA image for drawing (easier to draw text)
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
+
+	// Copy pixel data to RGBA image (convert uint16 to uint8 for display)
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			val := nativeFrame.RawData[y*width+x]
+			// Scale from uint16 (0-65535) to uint8 (0-255) for drawing
+			gray := uint8(val >> 8)
+			img.Set(x, y, color.RGBA{gray, gray, gray, 255})
+		}
+	}
+
+	// Calculate text position: centered horizontally, 5% from top
+	paddingTop := int(float64(height) * 0.05)
+
+	// Use basicfont (fixed-width font from standard library)
+	face := basicfont.Face7x13
+
+	// Measure text width to center it
+	textWidth := font.MeasureString(face, text).Ceil()
+	x := (width - textWidth) / 2
+	y := paddingTop + 13 // 13 is the font height
+
+	point := fixed.Point26_6{
+		X: fixed.Int26_6(x * 64),
+		Y: fixed.Int26_6(y * 64),
+	}
+
+	// Draw outline (black) for visibility
+	outlineThickness := 2
+	for dx := -outlineThickness; dx <= outlineThickness; dx++ {
+		for dy := -outlineThickness; dy <= outlineThickness; dy++ {
+			if dx != 0 || dy != 0 {
+				outlinePoint := fixed.Point26_6{
+					X: point.X + fixed.Int26_6(dx*64),
+					Y: point.Y + fixed.Int26_6(dy*64),
+				}
+				drawer := &font.Drawer{
+					Dst:  img,
+					Src:  image.NewUniform(color.RGBA{0, 0, 0, 255}), // Black
+					Face: face,
+					Dot:  outlinePoint,
+				}
+				drawer.DrawString(text)
+			}
+		}
+	}
+
+	// Draw main text (white)
+	drawer := &font.Drawer{
+		Dst:  img,
+		Src:  image.NewUniform(color.RGBA{255, 255, 255, 255}), // White
+		Face: face,
+		Dot:  point,
+	}
+	drawer.DrawString(text)
+
+	// Convert back to uint16 and update the frame
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			r, g, b, _ := img.At(x, y).RGBA()
+			// Average RGB to grayscale, scale back to uint16
+			gray := (r + g + b) / 3
+			// Scale from 16-bit color space (0-65535) to uint16
+			nativeFrame.RawData[y*width+x] = uint16(gray)
+		}
+	}
 }
 
 // GeneratorOptions contains all parameters needed to generate a DICOM series
@@ -349,6 +426,10 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 					nativeFrame.RawData[y*width+x] = pixelValue
 				}
 			}
+
+			// Draw text overlay: "File X/Y"
+			textOverlay := fmt.Sprintf("File %d/%d", globalImageIndex, opts.NumImages)
+			drawTextOnFrame(nativeFrame, width, height, textOverlay)
 
 			// Create pixel data info
 			pixelDataInfo := dicom.PixelDataInfo{
