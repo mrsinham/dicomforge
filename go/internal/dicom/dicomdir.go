@@ -1,7 +1,10 @@
 package dicom
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -398,10 +401,321 @@ func createDICOMDIRFile(outputDir string) error {
 		ds.Elements = append(ds.Elements, seqElem)
 	}
 
-	// Write DICOMDIR
+	// Write DICOMDIR (first pass with offsets at 0)
 	if err := writeDatasetToFile(dicomdirPath, *ds); err != nil {
 		return fmt.Errorf("write DICOMDIR: %w", err)
 	}
 
+	// Second pass: update offsets with correct byte positions
+	if err := updateDICOMDIROffsets(dicomdirPath); err != nil {
+		return fmt.Errorf("update DICOMDIR offsets: %w", err)
+	}
+
 	return nil
+}
+
+// updateDICOMDIROffsets reads a DICOMDIR file and updates the offset tags with correct byte positions
+func updateDICOMDIROffsets(dicomdirPath string) error {
+	// Read the entire DICOMDIR file
+	data, err := os.ReadFile(dicomdirPath)
+	if err != nil {
+		return fmt.Errorf("read DICOMDIR: %w", err)
+	}
+
+	// Find the Directory Record Sequence (0004,1220)
+	// We need to find where each Item (Directory Record) starts
+	recordPositions, err := findDirectoryRecordPositions(data)
+	if err != nil {
+		return fmt.Errorf("find record positions: %w", err)
+	}
+
+	if len(recordPositions) == 0 {
+		return fmt.Errorf("no directory records found")
+	}
+
+	// Now update the offset values in the file
+	// We need to update:
+	// 1. OffsetOfTheFirstDirectoryRecordOfTheRootDirectoryEntity (0004,1200)
+	// 2. OffsetOfTheLastDirectoryRecordOfTheRootDirectoryEntity (0004,1202)
+	// 3. OffsetOfTheNextDirectoryRecord (0004,1400) in each record
+	// 4. OffsetOfReferencedLowerLevelDirectoryEntity (0004,1420) in each record
+
+	// Update file with calculated offsets
+	if err := updateOffsetsInFile(dicomdirPath, data, recordPositions); err != nil {
+		return fmt.Errorf("update offsets in file: %w", err)
+	}
+
+	return nil
+}
+
+// findDirectoryRecordPositions scans the DICOMDIR binary data to find the byte position of each Directory Record
+func findDirectoryRecordPositions(data []byte) ([]int64, error) {
+	var positions []int64
+
+	// Look for Item tags (FFFE,E000) which indicate the start of each Directory Record
+	// In DICOM binary: Tag is little-endian, so (FFFE,E000) = 0xE0 0x00 0xFE 0xFF in bytes
+	itemTag := []byte{0xFE, 0xFF, 0x00, 0xE0}
+
+	// Start searching after the file meta information
+	// Skip preamble (128 bytes) + "DICM" (4 bytes) = 132 bytes minimum
+	searchStart := 132
+
+	for i := searchStart; i < len(data)-4; i++ {
+		if bytes.Equal(data[i:i+4], itemTag) {
+			// Found an item tag, this could be a Directory Record
+			// Verify it's within the Directory Record Sequence by checking context
+			positions = append(positions, int64(i))
+		}
+	}
+
+	return positions, nil
+}
+
+// updateOffsetsInFile updates the offset values in the DICOMDIR file
+func updateOffsetsInFile(path string, data []byte, recordPositions []int64) error {
+	// Parse the DICOMDIR to understand the structure
+	ds, err := dicom.ParseFile(path, nil)
+	if err != nil {
+		return fmt.Errorf("parse DICOMDIR: %w", err)
+	}
+
+	// Get the Directory Record Sequence
+	seqElem, err := ds.FindElementByTag(tag.DirectoryRecordSequence)
+	if err != nil {
+		return fmt.Errorf("find directory record sequence: %w", err)
+	}
+
+	seqItems := seqElem.Value.GetValue().([]*dicom.SequenceItemValue)
+
+	// We need to map which record position corresponds to which record in the hierarchy
+	// For simplicity, we'll build a mapping based on the order
+
+	// Count records by type to understand the hierarchy
+	var recordInfos []RecordInfo
+	for i, item := range seqItems {
+		if i >= len(recordPositions) {
+			break
+		}
+		elements := item.GetValue().([]*dicom.Element)
+		recordType := ""
+		for _, elem := range elements {
+			if elem.Tag == tag.DirectoryRecordType {
+				recordType = elem.Value.GetValue().([]string)[0]
+				break
+			}
+		}
+		recordInfos = append(recordInfos, RecordInfo{
+			Type:     recordType,
+			Index:    i,
+			Position: recordPositions[i],
+		})
+	}
+
+	// Now update the offsets
+	// Strategy: Open file for read/write and update specific offset fields
+	f, err := os.OpenFile(path, os.O_RDWR, 0644)
+	if err != nil {
+		return fmt.Errorf("open file for update: %w", err)
+	}
+	defer f.Close()
+
+	// Update FirstDirectoryRecordOffset and LastDirectoryRecordOffset in the header
+	if len(recordPositions) > 0 {
+		firstOffset := uint32(recordPositions[0])
+		lastOffset := uint32(recordPositions[len(recordPositions)-1])
+
+		// Find and update (0004,1200) - FirstDirectoryRecordOffset
+		if pos := findTagPosition(data, 0x0004, 0x1200); pos >= 0 {
+			if err := updateUInt32At(f, pos+8, firstOffset); err != nil {
+				return fmt.Errorf("update first offset: %w", err)
+			}
+		}
+
+		// Find and update (0004,1202) - LastDirectoryRecordOffset
+		if pos := findTagPosition(data, 0x0004, 0x1202); pos >= 0 {
+			if err := updateUInt32At(f, pos+8, lastOffset); err != nil {
+				return fmt.Errorf("update last offset: %w", err)
+			}
+		}
+	}
+
+	// Build parent-child relationships to calculate proper offsets
+	hierarchy := buildHierarchy(recordInfos)
+
+	// Update offsets within each Directory Record with proper hierarchy
+	for i, info := range recordInfos {
+		basePos := info.Position
+
+		// Calculate OffsetOfTheNextDirectoryRecord
+		// This should point to the next sibling (same parent, same level)
+		nextOffset := hierarchy[i].NextSibling
+
+		// Calculate OffsetOfReferencedLowerLevelDirectoryEntity
+		// This should point to the first CHILD record
+		lowerOffset := hierarchy[i].FirstChild
+
+		// Update OffsetOfTheNextDirectoryRecord (0004,1400) in this record
+		if pos := findTagPositionAfter(data, int(basePos), 0x0004, 0x1400); pos >= 0 {
+			if err := updateUInt32At(f, int64(pos+8), nextOffset); err != nil {
+				return fmt.Errorf("update next offset at record %d: %w", i, err)
+			}
+		}
+
+		// Update OffsetOfReferencedLowerLevelDirectoryEntity (0004,1420) in this record
+		if pos := findTagPositionAfter(data, int(basePos), 0x0004, 0x1420); pos >= 0 {
+			if err := updateUInt32At(f, int64(pos+8), lowerOffset); err != nil {
+				return fmt.Errorf("update lower offset at record %d: %w", i, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// shouldBeLowerLevel determines if recordB should be a child of recordA based on DICOM hierarchy
+func shouldBeLowerLevel(typeA, typeB string) bool {
+	hierarchy := map[string]string{
+		"PATIENT": "STUDY",
+		"STUDY":   "SERIES",
+		"SERIES":  "IMAGE",
+	}
+	return hierarchy[typeA] == typeB
+}
+
+// RecordInfo holds information about a directory record
+type RecordInfo struct {
+	Type     string
+	Index    int
+	Position int64
+}
+
+// HierarchyInfo holds offset information for a record
+type HierarchyInfo struct {
+	NextSibling uint32
+	FirstChild  uint32
+}
+
+// buildHierarchy analyzes the record list and builds parent-child relationships
+func buildHierarchy(records []RecordInfo) map[int]HierarchyInfo {
+	result := make(map[int]HierarchyInfo)
+
+	// Track hierarchy levels: when we see a record, remember where we are
+	// We process records in order, maintaining a stack of "current" items at each level
+	type LevelState struct {
+		Type     string
+		Index    int
+		Children []int // indices of direct children
+	}
+
+	var stack []*LevelState // stack of current items at each hierarchy level
+
+	for i, record := range records {
+		// Pop stack until we find where this record belongs
+		level := getHierarchyLevel(record.Type)
+
+		// Pop items from stack that are at >= this level (we're back up the tree)
+		for len(stack) > level {
+			stack = stack[:len(stack)-1]
+		}
+
+		// If stack is not empty, this record is a child of the top item
+		if len(stack) > 0 {
+			parent := stack[len(stack)-1]
+			parent.Children = append(parent.Children, i)
+		}
+
+		// Push this record onto the stack
+		stack = append(stack, &LevelState{
+			Type:     record.Type,
+			Index:    i,
+			Children: []int{},
+		})
+
+		// Now calculate offsets for all completed siblings
+		// When we add a new item at a level, we can finalize the previous item's NextSibling
+		if len(stack) >= 2 {
+			parentLevel := stack[len(stack)-2]
+			if len(parentLevel.Children) >= 2 {
+				// There are at least 2 children, so we can link them
+				prevChildIdx := parentLevel.Children[len(parentLevel.Children)-2]
+				currChildIdx := parentLevel.Children[len(parentLevel.Children)-1]
+
+				// Previous child's NextSibling points to current child
+				info := result[prevChildIdx]
+				info.NextSibling = uint32(records[currChildIdx].Position)
+				result[prevChildIdx] = info
+			}
+
+			// First child: parent's FirstChild points to it
+			if len(parentLevel.Children) == 1 {
+				childIdx := parentLevel.Children[0]
+				parentIdx := parentLevel.Index
+				info := result[parentIdx]
+				info.FirstChild = uint32(records[childIdx].Position)
+				result[parentIdx] = info
+			}
+		}
+	}
+
+	// Final pass: ensure all indices have an entry (even if both offsets are 0)
+	for i := range records {
+		if _, exists := result[i]; !exists {
+			result[i] = HierarchyInfo{}
+		}
+	}
+
+	return result
+}
+
+// getHierarchyLevel returns the hierarchy level (0=PATIENT, 1=STUDY, 2=SERIES, 3=IMAGE)
+func getHierarchyLevel(recordType string) int {
+	switch recordType {
+	case "PATIENT":
+		return 0
+	case "STUDY":
+		return 1
+	case "SERIES":
+		return 2
+	case "IMAGE":
+		return 3
+	default:
+		return -1
+	}
+}
+
+// findTagPosition finds the byte position of a DICOM tag in the data
+func findTagPosition(data []byte, group, element uint16) int64 {
+	// DICOM tags are stored as: group (2 bytes LE) + element (2 bytes LE)
+	tagBytes := make([]byte, 4)
+	binary.LittleEndian.PutUint16(tagBytes[0:2], group)
+	binary.LittleEndian.PutUint16(tagBytes[2:4], element)
+
+	for i := 0; i < len(data)-4; i++ {
+		if bytes.Equal(data[i:i+4], tagBytes) {
+			return int64(i)
+		}
+	}
+	return -1
+}
+
+// findTagPositionAfter finds the byte position of a DICOM tag after a given position
+func findTagPositionAfter(data []byte, startPos int, group, element uint16) int64 {
+	tagBytes := make([]byte, 4)
+	binary.LittleEndian.PutUint16(tagBytes[0:2], group)
+	binary.LittleEndian.PutUint16(tagBytes[2:4], element)
+
+	for i := startPos; i < len(data)-4 && i < startPos+500; i++ { // Search within 500 bytes
+		if bytes.Equal(data[i:i+4], tagBytes) {
+			return int64(i)
+		}
+	}
+	return -1
+}
+
+// updateUInt32At writes a uint32 value at the specified position in the file
+func updateUInt32At(f io.WriteSeeker, pos int64, value uint32) error {
+	if _, err := f.Seek(pos, io.SeekStart); err != nil {
+		return err
+	}
+	return binary.Write(f, binary.LittleEndian, value)
 }
