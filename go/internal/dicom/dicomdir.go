@@ -389,6 +389,8 @@ func createDICOMDIRFile(outputDir string) error {
 		// A proper implementation would calculate these during write
 		mustNewElement(tag.OffsetOfTheFirstDirectoryRecordOfTheRootDirectoryEntity, []int{0}),
 		mustNewElement(tag.OffsetOfTheLastDirectoryRecordOfTheRootDirectoryEntity, []int{0}),
+		// FileSet Consistency Flag - 0 means no known inconsistencies
+		mustNewElement(tag.FileSetConsistencyFlag, []int{0}),
 	)
 
 	// Add Directory Record Sequence
