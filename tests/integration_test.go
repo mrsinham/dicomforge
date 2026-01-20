@@ -278,12 +278,18 @@ func TestMultiStudy(t *testing.T) {
 
 	// Count total images
 	totalImages := 0
-	filepath.Walk(outputDir, func(path string, info os.FileInfo, err error) error {
+	err = filepath.Walk(outputDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
 		if !info.IsDir() && strings.HasPrefix(info.Name(), "IM") {
 			totalImages++
 		}
 		return nil
 	})
+	if err != nil {
+		t.Fatalf("Failed to walk output directory: %v", err)
+	}
 
 	if totalImages != 15 {
 		t.Errorf("Expected 15 total images, found %d", totalImages)

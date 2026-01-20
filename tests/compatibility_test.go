@@ -323,8 +323,12 @@ func TestCompatibility_SameSeedComparison(t *testing.T) {
 		} `json:"files"`
 	}
 
-	json.Unmarshal(goData, &goMeta)
-	json.Unmarshal(pythonData, &pythonMeta)
+	if err := json.Unmarshal(goData, &goMeta); err != nil {
+		t.Fatalf("Failed to unmarshal Go metadata: %v", err)
+	}
+	if err := json.Unmarshal(pythonData, &pythonMeta); err != nil {
+		t.Fatalf("Failed to unmarshal Python metadata: %v", err)
+	}
 
 	// Compare file counts
 	if goMeta.FileCount != pythonMeta.FileCount {
