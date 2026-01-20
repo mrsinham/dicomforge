@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"runtime"
 
 	"github.com/julien/dicom-test/go/internal/dicom"
 )
@@ -15,6 +16,7 @@ func main() {
 	outputDir := flag.String("output", "dicom_series", "Output directory")
 	seed := flag.Int64("seed", 0, "Seed for reproducibility (optional, auto-generated if not specified)")
 	numStudies := flag.Int("num-studies", 1, "Number of studies to generate")
+	workers := flag.Int("workers", 0, fmt.Sprintf("Number of parallel workers (default: %d = CPU cores)", runtime.NumCPU()))
 	help := flag.Bool("help", false, "Show help message")
 
 	flag.Parse()
@@ -56,6 +58,7 @@ func main() {
 		OutputDir:  *outputDir,
 		Seed:       *seed,
 		NumStudies: *numStudies,
+		Workers:    *workers,
 	}
 
 	// Generate DICOM series
@@ -103,6 +106,7 @@ func printHelp() {
 	fmt.Println("  --output <DIR>        Output directory (default: 'dicom_series')")
 	fmt.Println("  --seed <N>            Seed for reproducibility (auto-generated if not specified)")
 	fmt.Println("  --num-studies <N>     Number of studies to generate (default: 1)")
+	fmt.Printf("  --workers <N>         Number of parallel workers (default: %d = CPU cores)\n", runtime.NumCPU())
 	fmt.Println("  --help                Show this help message")
 	fmt.Println()
 	fmt.Println("Examples:")
@@ -114,6 +118,9 @@ func printHelp() {
 	fmt.Println()
 	fmt.Println("  # Generate 30 images across 3 studies")
 	fmt.Println("  generate-dicom-mri --num-images 30 --total-size 500MB --num-studies 3")
+	fmt.Println()
+	fmt.Println("  # Generate with 4 parallel workers (for limited resources)")
+	fmt.Println("  generate-dicom-mri --num-images 100 --total-size 1GB --workers 4")
 	fmt.Println()
 	fmt.Println("Output:")
 	fmt.Println("  The program creates a DICOM series with:")

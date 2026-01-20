@@ -9,6 +9,8 @@ import (
 	randv2 "math/rand/v2"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sync"
 
 	"github.com/julien/dicom-test/go/internal/util"
 	"github.com/suyashkumar/dicom"
@@ -155,6 +157,25 @@ type GeneratorOptions struct {
 	OutputDir  string
 	Seed       int64
 	NumStudies int
+	Workers    int // Number of parallel workers (0 = auto-detect based on CPU cores)
+}
+
+// imageTask contains all data needed to generate a single DICOM image
+type imageTask struct {
+	globalIndex     int
+	instanceInStudy int
+	width           int
+	height          int
+	filePath        string
+	textOverlay     string
+	pixelSeed       uint64 // Deterministic seed for this image's pixel generation
+	metadata        []*dicom.Element
+	// Result info
+	studyUID       string
+	seriesUID      string
+	sopInstanceUID string
+	patientID      string
+	studyID        string
 }
 
 // GeneratedFile contains information about a generated DICOM file
@@ -167,6 +188,63 @@ type GeneratedFile struct {
 	StudyID        string
 	SeriesNumber   int
 	InstanceNumber int
+}
+
+// generateImageFromTask generates a single DICOM image from a pre-computed task
+func generateImageFromTask(task imageTask) error {
+	width, height := task.width, task.height
+	pixelsPerFrame := width * height
+
+	// Create frame
+	nativeFrame := frame.NewNativeFrame[uint16](16, height, width, pixelsPerFrame, 1)
+
+	// Create deterministic RNG for this specific image
+	rng := randv2.New(randv2.NewPCG(task.pixelSeed, task.pixelSeed))
+
+	// Fill with synthetic brain-like pattern with noise everywhere
+	centerX, centerY := float64(width)/2, float64(height)/2
+	maxDist := math.Sqrt(centerX*centerX + centerY*centerY)
+
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			dx := float64(x) - centerX
+			dy := float64(y) - centerY
+			dist := math.Sqrt(dx*dx + dy*dy)
+
+			baseIntensity := (1.0 - (dist / maxDist)) * 12000.0
+
+			largeNoise := (rng.Float64() - 0.5) * 12000.0
+			mediumNoise := (rng.Float64() - 0.5) * 6000.0
+			fineNoise := (rng.Float64() - 0.5) * 3000.0
+
+			totalNoise := largeNoise + mediumNoise + fineNoise
+			intensity := baseIntensity + totalNoise
+
+			pixelValue := uint16(math.Max(0, math.Min(65535, intensity)))
+			nativeFrame.RawData[y*width+x] = pixelValue
+		}
+	}
+
+	// Draw text overlay
+	drawTextOnFrame(nativeFrame, width, height, task.textOverlay)
+
+	// Create pixel data info
+	pixelDataInfo := dicom.PixelDataInfo{
+		Frames: []*frame.Frame{
+			{
+				Encapsulated: false,
+				NativeData:   nativeFrame,
+			},
+		},
+	}
+
+	// Build complete metadata with pixel data
+	elements := make([]*dicom.Element, len(task.metadata)+1)
+	copy(elements, task.metadata)
+	elements[len(task.metadata)] = mustNewElement(tag.PixelData, pixelDataInfo)
+
+	// Write DICOM file
+	return writeDatasetToFile(task.filePath, dicom.Dataset{Elements: elements})
 }
 
 // CalculateDimensions calculates optimal image dimensions based on total size and number of images
@@ -284,7 +362,8 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 	imagesPerStudy := opts.NumImages / opts.NumStudies
 	remainingImages := opts.NumImages % opts.NumStudies
 
-	var generatedFiles []GeneratedFile
+	// Pre-allocate task slice
+	tasks := make([]imageTask, 0, opts.NumImages)
 	globalImageIndex := 1
 
 	// Manufacturer options
@@ -301,7 +380,7 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 		{"PHILIPS", "Ingenia", 3.0},
 	}
 
-	// Generate DICOM files for each study
+	// Phase 1: Build all tasks sequentially (maintains determinism)
 	for studyNum := 1; studyNum <= opts.NumStudies; studyNum++ {
 		// Generate deterministic UIDs for this study
 		studyUID := util.GenerateDeterministicUID(fmt.Sprintf("%s_study_%d", opts.OutputDir, studyNum))
@@ -322,27 +401,26 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 			rng.IntN(12)+1,   // 1-12
 			rng.IntN(28)+1)   // 1-28
 		studyTime := fmt.Sprintf("%02d%02d%02d",
-			rng.IntN(24),     // 0-23 hours
-			rng.IntN(60),     // 0-59 minutes
-			rng.IntN(60))     // 0-59 seconds
+			rng.IntN(24),  // 0-23 hours
+			rng.IntN(60),  // 0-59 minutes
+			rng.IntN(60))  // 0-59 seconds
 
 		// Generate series-specific MRI parameters (same for all images in series)
-		seriesPixelSpacing := rng.Float64()*1.5 + 0.5               // 0.5-2.0 mm
-		seriesSliceThickness := rng.Float64()*4.0 + 1.0             // 1.0-5.0 mm
-		seriesSpacingBetweenSlices := seriesSliceThickness + rng.Float64()*0.5 // slightly larger than thickness
-		seriesEchoTime := rng.Float64()*20.0 + 10.0                 // 10-30 ms
-		seriesRepetitionTime := rng.Float64()*400.0 + 400.0         // 400-800 ms
-		seriesFlipAngle := rng.Float64()*30.0 + 60.0                // 60-90 degrees
+		seriesPixelSpacing := rng.Float64()*1.5 + 0.5                           // 0.5-2.0 mm
+		seriesSliceThickness := rng.Float64()*4.0 + 1.0                         // 1.0-5.0 mm
+		seriesSpacingBetweenSlices := seriesSliceThickness + rng.Float64()*0.5  // slightly larger than thickness
+		seriesEchoTime := rng.Float64()*20.0 + 10.0                             // 10-30 ms
+		seriesRepetitionTime := rng.Float64()*400.0 + 400.0                     // 400-800 ms
+		seriesFlipAngle := rng.Float64()*30.0 + 60.0                            // 60-90 degrees
 		seriesSequenceName := []string{"T1_MPRAGE", "T1_SE", "T2_FSE", "T2_FLAIR"}[rng.IntN(4)]
 
 		// Select MRI scanner
 		mfr := manufacturers[rng.IntN(len(manufacturers))]
 
 		// Calculate imaging frequency based on field strength (in MHz)
-		// Larmor frequency for 1H: 42.58 MHz/T
 		imagingFrequency := mfr.FieldStrength * 42.58
 
-		// Window settings for display (depends on tissue contrast)
+		// Window settings for display
 		windowCenter := 500.0 + rng.Float64()*1000.0 // 500-1500
 		windowWidth := 1000.0 + rng.Float64()*1000.0 // 1000-2000
 
@@ -360,178 +438,176 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 		fmt.Printf("  Resolution: PixelSpacing=%.2fmm, SliceThickness=%.2fmm\n",
 			seriesPixelSpacing, seriesSliceThickness)
 
-		// Generate each DICOM file for this study
+		// Build tasks for each image in this study
 		for instanceInStudy := 1; instanceInStudy <= numImagesThisStudy; instanceInStudy++ {
-			// Generate SOP Instance UID
 			sopInstanceUID := util.GenerateDeterministicUID(
 				fmt.Sprintf("%s_study_%d_instance_%d", opts.OutputDir, studyNum, instanceInStudy))
 
-			// Calculate position/orientation for this slice
-			// Standard axial brain MRI orientation
-			// ImageOrientationPatient: [1, 0, 0, 0, 1, 0] means:
-			//   - First row direction: right (X+)
-			//   - First column direction: anterior (Y+)
-			//   - Slice normal: superior (Z+)
 			imageOrientationPatient := []string{"1", "0", "0", "0", "1", "0"}
 
-			// Calculate slice position (ImagePositionPatient)
-			// For axial slices, we increment Z position for each slice
-			// Start at -100mm and increment by slice spacing
 			sliceIndex := float64(instanceInStudy - 1)
-			imagePositionX := -100.0 // mm from isocenter
-			imagePositionY := -100.0 // mm from isocenter
+			imagePositionX := -100.0
+			imagePositionY := -100.0
 			imagePositionZ := -100.0 + (sliceIndex * seriesSpacingBetweenSlices)
 			imagePositionPatient := []string{
 				fmt.Sprintf("%.6f", imagePositionX),
 				fmt.Sprintf("%.6f", imagePositionY),
 				fmt.Sprintf("%.6f", imagePositionZ),
 			}
-
-			// SliceLocation: Z coordinate of the slice
 			sliceLocation := imagePositionZ
 
-			// Generate metadata with essential fields
-			metadata := &dicom.Dataset{
-				Elements: []*dicom.Element{
-					// File meta information (must be first)
-					mustNewElement(tag.TransferSyntaxUID, []string{"1.2.840.10008.1.2.1"}),
-					// Patient module
-					mustNewElement(tag.PatientName, []string{patientName}),
-					mustNewElement(tag.PatientID, []string{patientID}),
-					mustNewElement(tag.PatientBirthDate, []string{patientBirthDate}),
-					mustNewElement(tag.PatientSex, []string{patientSex}),
-					// Study module
-					mustNewElement(tag.StudyInstanceUID, []string{studyUID}),
-					mustNewElement(tag.StudyID, []string{studyID}),
-					mustNewElement(tag.StudyDate, []string{studyDate}),
-					mustNewElement(tag.StudyTime, []string{studyTime}),
-					mustNewElement(tag.StudyDescription, []string{studyDescription}),
-					// Series module
-					mustNewElement(tag.SeriesInstanceUID, []string{seriesUID}),
-					mustNewElement(tag.SeriesNumber, []string{fmt.Sprintf("%d", 1)}),
-					mustNewElement(tag.Modality, []string{"MR"}),
-					// Instance module
-					mustNewElement(tag.SOPInstanceUID, []string{sopInstanceUID}),
-					mustNewElement(tag.SOPClassUID, []string{"1.2.840.10008.5.1.4.1.1.4"}),
-					mustNewElement(tag.InstanceNumber, []string{fmt.Sprintf("%d", instanceInStudy)}),
-					// MRI parameters
-					mustNewElement(tag.PixelSpacing, []string{
-						fmt.Sprintf("%.6f", seriesPixelSpacing),
-						fmt.Sprintf("%.6f", seriesPixelSpacing),
-					}),
-					mustNewElement(tag.SliceThickness, []string{fmt.Sprintf("%.6f", seriesSliceThickness)}),
-					mustNewElement(tag.SpacingBetweenSlices, []string{fmt.Sprintf("%.6f", seriesSpacingBetweenSlices)}),
-					mustNewElement(tag.EchoTime, []string{fmt.Sprintf("%.6f", seriesEchoTime)}),
-					mustNewElement(tag.RepetitionTime, []string{fmt.Sprintf("%.6f", seriesRepetitionTime)}),
-					mustNewElement(tag.FlipAngle, []string{fmt.Sprintf("%.6f", seriesFlipAngle)}),
-					mustNewElement(tag.MagneticFieldStrength, []string{fmt.Sprintf("%.1f", mfr.FieldStrength)}),
-					mustNewElement(tag.ImagingFrequency, []string{fmt.Sprintf("%.6f", imagingFrequency)}),
-					mustNewElement(tag.Manufacturer, []string{mfr.Name}),
-					mustNewElement(tag.ManufacturerModelName, []string{mfr.Model}),
-					mustNewElement(tag.SequenceName, []string{seriesSequenceName}),
-					// Window/Level for display
-					mustNewElement(tag.WindowCenter, []string{fmt.Sprintf("%.1f", windowCenter)}),
-					mustNewElement(tag.WindowWidth, []string{fmt.Sprintf("%.1f", windowWidth)}),
-					// Position/Orientation tags
-					mustNewElement(tag.ImagePositionPatient, imagePositionPatient),
-					mustNewElement(tag.ImageOrientationPatient, imageOrientationPatient),
-					mustNewElement(tag.SliceLocation, []string{fmt.Sprintf("%.6f", sliceLocation)}),
-					// Image pixel module
-					mustNewElement(tag.Rows, []int{height}),
-					mustNewElement(tag.Columns, []int{width}),
-					mustNewElement(tag.BitsAllocated, []int{16}),
-					mustNewElement(tag.BitsStored, []int{16}),
-					mustNewElement(tag.HighBit, []int{15}),
-					mustNewElement(tag.PixelRepresentation, []int{0}),
-					mustNewElement(tag.SamplesPerPixel, []int{1}),
-					mustNewElement(tag.PhotometricInterpretation, []string{"MONOCHROME2"}),
-				},
+			// Build metadata (without pixel data)
+			metadata := []*dicom.Element{
+				mustNewElement(tag.TransferSyntaxUID, []string{"1.2.840.10008.1.2.1"}),
+				mustNewElement(tag.PatientName, []string{patientName}),
+				mustNewElement(tag.PatientID, []string{patientID}),
+				mustNewElement(tag.PatientBirthDate, []string{patientBirthDate}),
+				mustNewElement(tag.PatientSex, []string{patientSex}),
+				mustNewElement(tag.StudyInstanceUID, []string{studyUID}),
+				mustNewElement(tag.StudyID, []string{studyID}),
+				mustNewElement(tag.StudyDate, []string{studyDate}),
+				mustNewElement(tag.StudyTime, []string{studyTime}),
+				mustNewElement(tag.StudyDescription, []string{studyDescription}),
+				mustNewElement(tag.SeriesInstanceUID, []string{seriesUID}),
+				mustNewElement(tag.SeriesNumber, []string{fmt.Sprintf("%d", 1)}),
+				mustNewElement(tag.Modality, []string{"MR"}),
+				mustNewElement(tag.SOPInstanceUID, []string{sopInstanceUID}),
+				mustNewElement(tag.SOPClassUID, []string{"1.2.840.10008.5.1.4.1.1.4"}),
+				mustNewElement(tag.InstanceNumber, []string{fmt.Sprintf("%d", instanceInStudy)}),
+				mustNewElement(tag.PixelSpacing, []string{
+					fmt.Sprintf("%.6f", seriesPixelSpacing),
+					fmt.Sprintf("%.6f", seriesPixelSpacing),
+				}),
+				mustNewElement(tag.SliceThickness, []string{fmt.Sprintf("%.6f", seriesSliceThickness)}),
+				mustNewElement(tag.SpacingBetweenSlices, []string{fmt.Sprintf("%.6f", seriesSpacingBetweenSlices)}),
+				mustNewElement(tag.EchoTime, []string{fmt.Sprintf("%.6f", seriesEchoTime)}),
+				mustNewElement(tag.RepetitionTime, []string{fmt.Sprintf("%.6f", seriesRepetitionTime)}),
+				mustNewElement(tag.FlipAngle, []string{fmt.Sprintf("%.6f", seriesFlipAngle)}),
+				mustNewElement(tag.MagneticFieldStrength, []string{fmt.Sprintf("%.1f", mfr.FieldStrength)}),
+				mustNewElement(tag.ImagingFrequency, []string{fmt.Sprintf("%.6f", imagingFrequency)}),
+				mustNewElement(tag.Manufacturer, []string{mfr.Name}),
+				mustNewElement(tag.ManufacturerModelName, []string{mfr.Model}),
+				mustNewElement(tag.SequenceName, []string{seriesSequenceName}),
+				mustNewElement(tag.WindowCenter, []string{fmt.Sprintf("%.1f", windowCenter)}),
+				mustNewElement(tag.WindowWidth, []string{fmt.Sprintf("%.1f", windowWidth)}),
+				mustNewElement(tag.ImagePositionPatient, imagePositionPatient),
+				mustNewElement(tag.ImageOrientationPatient, imageOrientationPatient),
+				mustNewElement(tag.SliceLocation, []string{fmt.Sprintf("%.6f", sliceLocation)}),
+				mustNewElement(tag.Rows, []int{height}),
+				mustNewElement(tag.Columns, []int{width}),
+				mustNewElement(tag.BitsAllocated, []int{16}),
+				mustNewElement(tag.BitsStored, []int{16}),
+				mustNewElement(tag.HighBit, []int{15}),
+				mustNewElement(tag.PixelRepresentation, []int{0}),
+				mustNewElement(tag.SamplesPerPixel, []int{1}),
+				mustNewElement(tag.PhotometricInterpretation, []string{"MONOCHROME2"}),
 			}
 
-			// Generate pixel data
-			pixelsPerFrame := width * height
-			nativeFrame := frame.NewNativeFrame[uint16](16, height, width, pixelsPerFrame, 1)
+			// Generate deterministic pixel seed for this specific image
+			pixelSeedHash := fnv.New64a()
+			pixelSeedHash.Write([]byte(fmt.Sprintf("%d_pixel_%d", seed, globalImageIndex)))
+			pixelSeed := pixelSeedHash.Sum64()
 
-			// Fill with synthetic brain-like pattern with noise everywhere
-			centerX, centerY := float64(width)/2, float64(height)/2
-			maxDist := math.Sqrt(centerX*centerX + centerY*centerY)
-
-			for y := 0; y < height; y++ {
-				for x := 0; x < width; x++ {
-					// Calculate distance from center for subtle gradient
-					dx := float64(x) - centerX
-					dy := float64(y) - centerY
-					dist := math.Sqrt(dx*dx + dy*dy)
-
-					// Create darker base intensity with subtle radial gradient
-					// Reduce from 40000 to 12000 for darker images
-					baseIntensity := (1.0 - (dist / maxDist)) * 12000.0
-
-					// Add multi-scale noise everywhere (not just at edges)
-					// Increase noise for better texture visibility
-					// Large-scale noise pattern (tissue-like variations)
-					largeNoise := (rng.Float64() - 0.5) * 12000.0
-					// Medium-scale noise (more texture)
-					mediumNoise := (rng.Float64() - 0.5) * 6000.0
-					// Fine grain noise
-					fineNoise := (rng.Float64() - 0.5) * 3000.0
-
-					totalNoise := largeNoise + mediumNoise + fineNoise
-
-					// Combine base intensity with noise
-					intensity := baseIntensity + totalNoise
-
-					// Clamp to valid range
-					pixelValue := uint16(math.Max(0, math.Min(65535, intensity)))
-					nativeFrame.RawData[y*width+x] = pixelValue
-				}
-			}
-
-			// Draw text overlay: "File X/Y"
-			textOverlay := fmt.Sprintf("File %d/%d", globalImageIndex, opts.NumImages)
-			drawTextOnFrame(nativeFrame, width, height, textOverlay)
-
-			// Create pixel data info
-			pixelDataInfo := dicom.PixelDataInfo{
-				Frames: []*frame.Frame{
-					{
-						Encapsulated: false,
-						NativeData:   nativeFrame,
-					},
-				},
-			}
-
-			// Add pixel data element
-			metadata.Elements = append(metadata.Elements,
-				mustNewElement(tag.PixelData, pixelDataInfo))
-
-			// Write DICOM file
 			filename := fmt.Sprintf("IMG%04d.dcm", globalImageIndex)
 			filePath := filepath.Join(opts.OutputDir, filename)
 
-			if err := writeDatasetToFile(filePath, dicom.Dataset{Elements: metadata.Elements}); err != nil {
-				return nil, fmt.Errorf("write DICOM file %s: %w", filePath, err)
-			}
-
-			// Record generated file info
-			generatedFiles = append(generatedFiles, GeneratedFile{
-				Path:           filePath,
-				StudyUID:       studyUID,
-				SeriesUID:      seriesUID,
-				SOPInstanceUID: sopInstanceUID,
-				PatientID:      patientID,
-				StudyID:        studyID,
-				SeriesNumber:   1,
-				InstanceNumber: instanceInStudy,
+			tasks = append(tasks, imageTask{
+				globalIndex:     globalImageIndex,
+				instanceInStudy: instanceInStudy,
+				width:           width,
+				height:          height,
+				filePath:        filePath,
+				textOverlay:     fmt.Sprintf("File %d/%d", globalImageIndex, opts.NumImages),
+				pixelSeed:       pixelSeed,
+				metadata:        metadata,
+				studyUID:        studyUID,
+				seriesUID:       seriesUID,
+				sopInstanceUID:  sopInstanceUID,
+				patientID:       patientID,
+				studyID:         studyID,
 			})
 
-			// Progress indicator
-			if globalImageIndex%10 == 0 || globalImageIndex == opts.NumImages {
-				progress := float64(globalImageIndex) / float64(opts.NumImages) * 100
-				fmt.Printf("  Progress: %d/%d (%.0f%%)\n", globalImageIndex, opts.NumImages, progress)
-			}
-
 			globalImageIndex++
+		}
+	}
+
+	// Phase 2: Process tasks in parallel
+	numWorkers := opts.Workers
+	if numWorkers <= 0 {
+		numWorkers = runtime.NumCPU()
+	}
+	// Don't use more workers than tasks
+	if numWorkers > len(tasks) {
+		numWorkers = len(tasks)
+	}
+
+	fmt.Printf("\nGenerating images with %d parallel workers...\n", numWorkers)
+
+	// Create channels for work distribution and results
+	taskChan := make(chan imageTask, len(tasks))
+	resultChan := make(chan struct {
+		index int
+		err   error
+	}, len(tasks))
+
+	// Start workers
+	var wg sync.WaitGroup
+	for w := 0; w < numWorkers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for task := range taskChan {
+				err := generateImageFromTask(task)
+				resultChan <- struct {
+					index int
+					err   error
+				}{task.globalIndex, err}
+			}
+		}()
+	}
+
+	// Send all tasks to workers
+	for _, task := range tasks {
+		taskChan <- task
+	}
+	close(taskChan)
+
+	// Wait for all workers to finish
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+
+	// Collect results and track progress
+	completed := 0
+	var firstErr error
+	for result := range resultChan {
+		if result.err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("generate image %d: %w", result.index, result.err)
+		}
+		completed++
+		if completed%10 == 0 || completed == len(tasks) {
+			progress := float64(completed) / float64(len(tasks)) * 100
+			fmt.Printf("  Progress: %d/%d (%.0f%%)\n", completed, len(tasks), progress)
+		}
+	}
+
+	if firstErr != nil {
+		return nil, firstErr
+	}
+
+	// Build result slice (in order)
+	generatedFiles := make([]GeneratedFile, len(tasks))
+	for i, task := range tasks {
+		generatedFiles[i] = GeneratedFile{
+			Path:           task.filePath,
+			StudyUID:       task.studyUID,
+			SeriesUID:      task.seriesUID,
+			SOPInstanceUID: task.sopInstanceUID,
+			PatientID:      task.patientID,
+			StudyID:        task.studyID,
+			SeriesNumber:   1,
+			InstanceNumber: task.instanceInStudy,
 		}
 	}
 
