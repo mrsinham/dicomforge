@@ -31,6 +31,9 @@ venv/
 # Git worktrees
 .worktrees/
 
+# Nix
+result
+
 # Misc
 claude.md
 *.out

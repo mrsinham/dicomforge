@@ -9,9 +9,41 @@ A CLI tool to generate valid DICOM MRI series for testing medical imaging platfo
 
 ## Installation
 
-### Prerequisites
+### Download pre-built binaries
 
-- Go 1.21 or later
+Download the latest release for your platform from [GitHub Releases](https://github.com/mrsinham/dicomforge/releases):
+
+- `dicomforge-linux-amd64` - Linux (x86_64)
+- `dicomforge-linux-arm64` - Linux (ARM64)
+- `dicomforge-darwin-amd64` - macOS (Intel)
+- `dicomforge-darwin-arm64` - macOS (Apple Silicon)
+- `dicomforge-windows-amd64.exe` - Windows
+
+```bash
+# Example for Linux x86_64
+curl -LO https://github.com/mrsinham/dicomforge/releases/latest/download/dicomforge-linux-amd64
+chmod +x dicomforge-linux-amd64
+sudo mv dicomforge-linux-amd64 /usr/local/bin/dicomforge
+```
+
+### Nix
+
+```bash
+# Run without installing
+nix run github:mrsinham/dicomforge -- --num-images 10 --total-size 100MB
+
+# Install to profile
+nix profile install github:mrsinham/dicomforge
+
+# Development shell (Go 1.24 + tools)
+nix develop github:mrsinham/dicomforge
+```
+
+### Go install
+
+```bash
+go install github.com/mrsinham/dicomforge/cmd/dicomforge@latest
+```
 
 ### Build from source
 
@@ -19,12 +51,6 @@ A CLI tool to generate valid DICOM MRI series for testing medical imaging platfo
 git clone https://github.com/mrsinham/dicomforge.git
 cd dicomforge
 go build -o dicomforge ./cmd/dicomforge/
-```
-
-### Install directly
-
-```bash
-go install github.com/mrsinham/dicomforge/cmd/dicomforge@latest
 ```
 
 ## Quick Start
