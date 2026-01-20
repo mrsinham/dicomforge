@@ -5,8 +5,8 @@
 *.so
 *.dylib
 bin/
-generate-dicom-mri
-cmd/generate-dicom-mri/generate-dicom-mri
+dicomforge
+cmd/dicomforge/dicomforge
 
 # Test outputs
 test-*/

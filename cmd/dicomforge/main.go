@@ -6,7 +6,7 @@ import (
 	"os"
 	"runtime"
 
-	"github.com/mrsinham/dicom-test/internal/dicom"
+	"github.com/mrsinham/dicomforge/internal/dicom"
 )
 
 func main() {
@@ -62,8 +62,8 @@ func main() {
 	}
 
 	// Generate DICOM series
-	fmt.Println("DICOM MRI Generator (Go)")
-	fmt.Println("========================")
+	fmt.Println("dicomforge")
+	fmt.Println("==========")
 	fmt.Println()
 
 	generatedFiles, err := dicom.GenerateDICOMSeries(opts)
@@ -84,19 +84,19 @@ func main() {
 
 func printUsage() {
 	fmt.Fprintln(os.Stderr, "\nUsage:")
-	fmt.Fprintln(os.Stderr, "  generate-dicom-mri --num-images <N> --total-size <SIZE> [options]")
+	fmt.Fprintln(os.Stderr, "  dicomforge --num-images <N> --total-size <SIZE> [options]")
 	fmt.Fprintln(os.Stderr, "\nRequired:")
 	flag.PrintDefaults()
 }
 
 func printHelp() {
-	fmt.Println("DICOM MRI Generator (Go)")
-	fmt.Println("========================")
+	fmt.Println("dicomforge")
+	fmt.Println("==========")
 	fmt.Println()
 	fmt.Println("Generate valid DICOM multi-file MRI series for testing medical platforms.")
 	fmt.Println()
 	fmt.Println("Usage:")
-	fmt.Println("  generate-dicom-mri --num-images <N> --total-size <SIZE> [options]")
+	fmt.Println("  dicomforge --num-images <N> --total-size <SIZE> [options]")
 	fmt.Println()
 	fmt.Println("Required arguments:")
 	fmt.Println("  --num-images <N>      Number of DICOM images/slices to generate")
@@ -111,16 +111,16 @@ func printHelp() {
 	fmt.Println()
 	fmt.Println("Examples:")
 	fmt.Println("  # Generate 10 images, 100MB total")
-	fmt.Println("  generate-dicom-mri --num-images 10 --total-size 100MB")
+	fmt.Println("  dicomforge --num-images 10 --total-size 100MB")
 	fmt.Println()
 	fmt.Println("  # Generate 120 images, 4.5GB, with specific seed")
-	fmt.Println("  generate-dicom-mri --num-images 120 --total-size 4.5GB --seed 42")
+	fmt.Println("  dicomforge --num-images 120 --total-size 4.5GB --seed 42")
 	fmt.Println()
 	fmt.Println("  # Generate 30 images across 3 studies")
-	fmt.Println("  generate-dicom-mri --num-images 30 --total-size 500MB --num-studies 3")
+	fmt.Println("  dicomforge --num-images 30 --total-size 500MB --num-studies 3")
 	fmt.Println()
 	fmt.Println("  # Generate with 4 parallel workers (for limited resources)")
-	fmt.Println("  generate-dicom-mri --num-images 100 --total-size 1GB --workers 4")
+	fmt.Println("  dicomforge --num-images 100 --total-size 1GB --workers 4")
 	fmt.Println()
 	fmt.Println("Output:")
 	fmt.Println("  The program creates a DICOM series with:")

@@ -4,7 +4,7 @@ import (
 	"runtime"
 	"testing"
 
-	internaldicom "github.com/mrsinham/dicom-test/internal/dicom"
+	internaldicom "github.com/mrsinham/dicomforge/internal/dicom"
 )
 
 // BenchmarkGenerateSeries_Small benchmarks small series generation

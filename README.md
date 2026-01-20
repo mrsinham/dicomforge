@@ -13,31 +13,31 @@ A CLI tool to generate valid DICOM MRI series for testing medical imaging platfo
 ### Build from source
 
 ```bash
-git clone https://github.com/mrsinham/dicom-test.git
-cd dicom-test
-go build -o generate-dicom-mri ./cmd/generate-dicom-mri/
+git clone https://github.com/mrsinham/dicomforge.git
+cd dicomforge
+go build -o dicomforge ./cmd/dicomforge/
 ```
 
 ### Install directly
 
 ```bash
-go install github.com/mrsinham/dicom-test/cmd/generate-dicom-mri@latest
+go install github.com/mrsinham/dicomforge/cmd/dicomforge@latest
 ```
 
 ## Quick Start
 
 ```bash
 # Generate 10 DICOM images totaling 100MB
-./generate-dicom-mri --num-images 10 --total-size 100MB
+./dicomforge --num-images 10 --total-size 100MB
 
 # Generate a full MRI series (120 slices, 1GB)
-./generate-dicom-mri --num-images 120 --total-size 1GB --output mri_series
+./dicomforge --num-images 120 --total-size 1GB --output mri_series
 ```
 
 ## Usage
 
 ```bash
-./generate-dicom-mri --num-images <N> --total-size <SIZE> [options]
+./dicomforge --num-images <N> --total-size <SIZE> [options]
 ```
 
 ### Required Arguments
@@ -61,19 +61,19 @@ go install github.com/mrsinham/dicom-test/cmd/generate-dicom-mri@latest
 
 ```bash
 # Basic usage: 120 images, 1GB total
-./generate-dicom-mri --num-images 120 --total-size 1GB
+./dicomforge --num-images 120 --total-size 1GB
 
 # Custom output directory with fixed seed for reproducibility
-./generate-dicom-mri --num-images 50 --total-size 500MB --output patient_001 --seed 42
+./dicomforge --num-images 50 --total-size 500MB --output patient_001 --seed 42
 
 # Generate multiple studies (useful for testing study management)
-./generate-dicom-mri --num-images 30 --total-size 500MB --num-studies 3
+./dicomforge --num-images 30 --total-size 500MB --num-studies 3
 
 # Limit parallelism (useful on resource-constrained systems)
-./generate-dicom-mri --num-images 100 --total-size 1GB --workers 4
+./dicomforge --num-images 100 --total-size 1GB --workers 4
 
 # Large dataset for stress testing
-./generate-dicom-mri --num-images 500 --total-size 4GB --output stress_test
+./dicomforge --num-images 500 --total-size 4GB --output stress_test
 ```
 
 ## Output Structure
@@ -124,8 +124,8 @@ The generator supports deterministic output:
 
 ```bash
 # These two commands produce identical files
-./generate-dicom-mri --num-images 10 --total-size 100MB --output test --seed 42
-./generate-dicom-mri --num-images 10 --total-size 100MB --output test --seed 42
+./dicomforge --num-images 10 --total-size 100MB --output test --seed 42
+./dicomforge --num-images 10 --total-size 100MB --output test --seed 42
 ```
 
 When no seed is provided, a deterministic seed is generated from the output directory name, ensuring that regenerating with the same output directory produces the same patient/study IDs.
@@ -150,7 +150,7 @@ go test -v ./...
 
 ```
 .
-├── cmd/generate-dicom-mri/    # CLI entry point
+├── cmd/dicomforge/    # CLI entry point
 ├── internal/
 │   ├── dicom/                 # DICOM generation and DICOMDIR
 │   ├── image/                 # Pixel data generation

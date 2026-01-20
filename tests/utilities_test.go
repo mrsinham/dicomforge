@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mrsinham/dicom-test/internal/util"
+	"github.com/mrsinham/dicomforge/internal/util"
 )
 
 // TestUtil_ParseSize tests size parsing with various formats
