@@ -1,4 +1,4 @@
-module github.com/mrsinham/dicom-test
+module github.com/mrsinham/dicomforge
 
 go 1.24.0
 

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	internaldicom "github.com/mrsinham/dicom-test/internal/dicom"
+	internaldicom "github.com/mrsinham/dicomforge/internal/dicom"
 	"github.com/suyashkumar/dicom"
 	"github.com/suyashkumar/dicom/pkg/tag"
 )

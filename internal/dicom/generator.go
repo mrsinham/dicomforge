@@ -12,7 +12,7 @@ import (
 	"runtime"
 	"sync"
 
-	"github.com/mrsinham/dicom-test/internal/util"
+	"github.com/mrsinham/dicomforge/internal/util"
 	"github.com/suyashkumar/dicom"
 	"github.com/suyashkumar/dicom/pkg/frame"
 	"github.com/suyashkumar/dicom/pkg/tag"

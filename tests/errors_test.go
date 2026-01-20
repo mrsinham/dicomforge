@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	internaldicom "github.com/mrsinham/dicom-test/internal/dicom"
+	internaldicom "github.com/mrsinham/dicomforge/internal/dicom"
 )
 
 // TestErrors_InvalidNumImages tests error handling for invalid image count
