@@ -26,6 +26,16 @@ chmod +x dicomforge-linux-amd64
 sudo mv dicomforge-linux-amd64 /usr/local/bin/dicomforge
 ```
 
+### Homebrew (macOS/Linux)
+
+```bash
+# Add the tap
+brew tap mrsinham/tap
+
+# Install dicomforge
+brew install dicomforge
+```
+
 ### Nix
 
 ```bash
