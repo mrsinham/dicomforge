@@ -202,3 +202,37 @@ jobs:
           git add Formula/dicomforge.rb
           git commit -m "Update dicomforge to v${VERSION}"
           git push
+
+  update-nix-flake:
+    name: Update Nix Flake
+    needs: release
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.ref, '-') }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get version
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Update flake.nix version
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+
+          # Update version in flake.nix
+          sed -i "s/version = \"[^\"]*\";/version = \"${VERSION}\";/" flake.nix
+          sed -i "s/-X main.version=[^\"]*\"/-X main.version=${VERSION}\"/" flake.nix
+
+      - name: Commit and push
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add flake.nix
+          git diff --staged --quiet && echo "No changes to commit" && exit 0
+          git commit -m "chore: update Nix flake to v${VERSION}"
+          git push
