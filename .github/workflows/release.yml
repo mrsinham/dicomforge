@@ -98,8 +98,10 @@ jobs:
         run: |
           # Remove 'v' prefix from version
           export VERSION=${VERSION#v}
-          nfpm package -p deb -t dicomforge_${VERSION}_${{ matrix.goarch }}.deb
-          nfpm package -p rpm -t dicomforge-${VERSION}.${{ matrix.goarch }}.rpm
+          # Substitute env vars in nfpm.yaml
+          envsubst < nfpm.yaml > nfpm-resolved.yaml
+          nfpm package -p deb -f nfpm-resolved.yaml -t dicomforge_${VERSION}_${{ matrix.goarch }}.deb
+          nfpm package -p rpm -f nfpm-resolved.yaml -t dicomforge-${VERSION}.${{ matrix.goarch }}.rpm
 
       - name: Upload deb
         uses: actions/upload-artifact@v4
