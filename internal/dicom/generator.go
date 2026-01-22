@@ -152,12 +152,21 @@ func max(a, b int) int {
 
 // GeneratorOptions contains all parameters needed to generate a DICOM series
 type GeneratorOptions struct {
-	NumImages  int
-	TotalSize  string
-	OutputDir  string
-	Seed       int64
-	NumStudies int
-	Workers    int // Number of parallel workers (0 = auto-detect based on CPU cores)
+	NumImages   int
+	TotalSize   string
+	OutputDir   string
+	Seed        int64
+	NumStudies  int
+	NumPatients int // Number of patients (studies are distributed among patients)
+	Workers     int // Number of parallel workers (0 = auto-detect based on CPU cores)
+}
+
+// patientInfo holds generated patient data
+type patientInfo struct {
+	ID        string
+	Name      string
+	Sex       string
+	BirthDate string
 }
 
 // imageTask contains all data needed to generate a single DICOM image
@@ -307,6 +316,13 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 	if opts.NumStudies <= 0 {
 		return nil, fmt.Errorf("number of studies must be > 0, got %d", opts.NumStudies)
 	}
+	// Default to 1 patient if not specified
+	if opts.NumPatients <= 0 {
+		opts.NumPatients = 1
+	}
+	if opts.NumPatients > opts.NumStudies {
+		return nil, fmt.Errorf("number of patients (%d) cannot exceed number of studies (%d)", opts.NumPatients, opts.NumStudies)
+	}
 
 	// Parse total size
 	totalBytes, err := util.ParseSize(opts.TotalSize)
@@ -344,18 +360,50 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 	// Create RNG for patient name generation
 	rng := randv2.New(randv2.NewPCG(uint64(seed), uint64(seed)))
 
-	// Generate shared patient info
-	patientID := fmt.Sprintf("PID%06d", rng.IntN(900000)+100000)
-	patientSex := []string{"M", "F"}[rng.IntN(2)]
-	patientName := util.GeneratePatientName(patientSex, rng)
-	patientBirthDate := fmt.Sprintf("%04d%02d%02d",
-		rng.IntN(51)+1950, // 1950-2000
-		rng.IntN(12)+1,    // 1-12
-		rng.IntN(28)+1)    // 1-28
+	// Generate all patients
+	patients := make([]patientInfo, opts.NumPatients)
+	for i := 0; i < opts.NumPatients; i++ {
+		patients[i] = patientInfo{
+			ID:   fmt.Sprintf("PID%06d", rng.IntN(900000)+100000),
+			Sex:  []string{"M", "F"}[rng.IntN(2)],
+			BirthDate: fmt.Sprintf("%04d%02d%02d",
+				rng.IntN(51)+1950, // 1950-2000
+				rng.IntN(12)+1,    // 1-12
+				rng.IntN(28)+1),   // 1-28
+		}
+		patients[i].Name = util.GeneratePatientName(patients[i].Sex, rng)
+	}
+
+	// Calculate studies per patient (distribute evenly)
+	studiesPerPatient := opts.NumStudies / opts.NumPatients
+	remainingStudies := opts.NumStudies % opts.NumPatients
+
+	// Build patient-to-study assignment
+	// Each patient gets at least studiesPerPatient studies
+	// First remainingStudies patients get one extra
+	patientForStudy := make([]int, opts.NumStudies)
+	studyIdx := 0
+	for patientIdx := 0; patientIdx < opts.NumPatients; patientIdx++ {
+		numStudiesForThisPatient := studiesPerPatient
+		if patientIdx < remainingStudies {
+			numStudiesForThisPatient++
+		}
+		for s := 0; s < numStudiesForThisPatient; s++ {
+			patientForStudy[studyIdx] = patientIdx
+			studyIdx++
+		}
+	}
 
 	fmt.Printf("Generating %d DICOM files...\n", opts.NumImages)
-	fmt.Printf("Patient: %s (ID: %s, DOB: %s, Sex: %s)\n",
-		patientName, patientID, patientBirthDate, patientSex)
+	fmt.Printf("Number of patients: %d\n", opts.NumPatients)
+	for i, p := range patients {
+		studyCount := studiesPerPatient
+		if i < remainingStudies {
+			studyCount++
+		}
+		fmt.Printf("  Patient %d: %s (ID: %s, DOB: %s, Sex: %s) - %d studies\n",
+			i+1, p.Name, p.ID, p.BirthDate, p.Sex, studyCount)
+	}
 	fmt.Printf("Number of studies: %d\n", opts.NumStudies)
 
 	// Calculate images per study
@@ -382,6 +430,9 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 
 	// Phase 1: Build all tasks sequentially (maintains determinism)
 	for studyNum := 1; studyNum <= opts.NumStudies; studyNum++ {
+		// Get patient for this study
+		patient := patients[patientForStudy[studyNum-1]]
+
 		// Generate deterministic UIDs for this study
 		studyUID := util.GenerateDeterministicUID(fmt.Sprintf("%s_study_%d", opts.OutputDir, studyNum))
 		seriesUID := util.GenerateDeterministicUID(fmt.Sprintf("%s_study_%d_series_1", opts.OutputDir, studyNum))
@@ -430,7 +481,7 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 			numImagesThisStudy++
 		}
 
-		fmt.Printf("\nStudy %d/%d: %d images\n", studyNum, opts.NumStudies, numImagesThisStudy)
+		fmt.Printf("\nStudy %d/%d: %d images (Patient: %s)\n", studyNum, opts.NumStudies, numImagesThisStudy, patient.Name)
 		fmt.Printf("  StudyID: %s, Description: %s\n", studyID, studyDescription)
 		fmt.Printf("  Scanner: %s %s (%.1fT)\n", mfr.Name, mfr.Model, mfr.FieldStrength)
 		fmt.Printf("  Sequence: %s, TE=%.1fms, TR=%.1fms, FA=%.1f°\n",
@@ -459,10 +510,10 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 			// Build metadata (without pixel data)
 			metadata := []*dicom.Element{
 				mustNewElement(tag.TransferSyntaxUID, []string{"1.2.840.10008.1.2.1"}),
-				mustNewElement(tag.PatientName, []string{patientName}),
-				mustNewElement(tag.PatientID, []string{patientID}),
-				mustNewElement(tag.PatientBirthDate, []string{patientBirthDate}),
-				mustNewElement(tag.PatientSex, []string{patientSex}),
+				mustNewElement(tag.PatientName, []string{patient.Name}),
+				mustNewElement(tag.PatientID, []string{patient.ID}),
+				mustNewElement(tag.PatientBirthDate, []string{patient.BirthDate}),
+				mustNewElement(tag.PatientSex, []string{patient.Sex}),
 				mustNewElement(tag.StudyInstanceUID, []string{studyUID}),
 				mustNewElement(tag.StudyID, []string{studyID}),
 				mustNewElement(tag.StudyDate, []string{studyDate}),
@@ -523,7 +574,7 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 				studyUID:        studyUID,
 				seriesUID:       seriesUID,
 				sopInstanceUID:  sopInstanceUID,
-				patientID:       patientID,
+				patientID:       patient.ID,
 				studyID:         studyID,
 			})
 

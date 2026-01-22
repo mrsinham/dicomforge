@@ -19,6 +19,7 @@ func main() {
 	outputDir := flag.String("output", "dicom_series", "Output directory")
 	seed := flag.Int64("seed", 0, "Seed for reproducibility (optional, auto-generated if not specified)")
 	numStudies := flag.Int("num-studies", 1, "Number of studies to generate")
+	numPatients := flag.Int("num-patients", 1, "Number of patients (studies are distributed among patients)")
 	workers := flag.Int("workers", 0, fmt.Sprintf("Number of parallel workers (default: %d = CPU cores)", runtime.NumCPU()))
 	help := flag.Bool("help", false, "Show help message")
 	showVersion := flag.Bool("version", false, "Show version")
@@ -61,14 +62,26 @@ func main() {
 		os.Exit(1)
 	}
 
+	if *numPatients <= 0 {
+		fmt.Fprintf(os.Stderr, "Error: --num-patients must be > 0\n")
+		printUsage()
+		os.Exit(1)
+	}
+
+	if *numPatients > *numStudies {
+		fmt.Fprintf(os.Stderr, "Error: --num-patients cannot be greater than --num-studies (each patient needs at least one study)\n")
+		os.Exit(1)
+	}
+
 	// Create generator options
 	opts := dicom.GeneratorOptions{
-		NumImages:  *numImages,
-		TotalSize:  *totalSize,
-		OutputDir:  *outputDir,
-		Seed:       *seed,
-		NumStudies: *numStudies,
-		Workers:    *workers,
+		NumImages:   *numImages,
+		TotalSize:   *totalSize,
+		OutputDir:   *outputDir,
+		Seed:        *seed,
+		NumStudies:  *numStudies,
+		NumPatients: *numPatients,
+		Workers:     *workers,
 	}
 
 	// Generate DICOM series
@@ -116,6 +129,7 @@ func printHelp() {
 	fmt.Println("  --output <DIR>        Output directory (default: 'dicom_series')")
 	fmt.Println("  --seed <N>            Seed for reproducibility (auto-generated if not specified)")
 	fmt.Println("  --num-studies <N>     Number of studies to generate (default: 1)")
+	fmt.Println("  --num-patients <N>    Number of patients (default: 1, studies distributed among patients)")
 	fmt.Printf("  --workers <N>         Number of parallel workers (default: %d = CPU cores)\n", runtime.NumCPU())
 	fmt.Println("  --help                Show this help message")
 	fmt.Println()
@@ -129,6 +143,9 @@ func printHelp() {
 	fmt.Println("  # Generate 30 images across 3 studies")
 	fmt.Println("  dicomforge --num-images 30 --total-size 500MB --num-studies 3")
 	fmt.Println()
+	fmt.Println("  # Generate 6 studies for 2 patients (3 studies each)")
+	fmt.Println("  dicomforge --num-images 60 --total-size 1GB --num-studies 6 --num-patients 2")
+	fmt.Println()
 	fmt.Println("  # Generate with 4 parallel workers (for limited resources)")
 	fmt.Println("  dicomforge --num-images 100 --total-size 1GB --workers 4")
 	fmt.Println()
@@ -137,7 +154,7 @@ func printHelp() {
 	fmt.Println("  - DICOMDIR index file")
 	fmt.Println("  - PT000000/ST000000/SE000000/ hierarchy (patient/study/series)")
 	fmt.Println("  - Realistic MRI metadata (manufacturer, scanner, parameters)")
-	fmt.Println("  - French patient names")
+	fmt.Println("  - Realistic patient names (80% English, 20% French)")
 	fmt.Println("  - Text overlay showing 'File X/Y' on each image")
 	fmt.Println()
 	fmt.Println("Reproducibility:")

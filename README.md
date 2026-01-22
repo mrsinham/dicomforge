@@ -93,6 +93,7 @@ go build -o dicomforge ./cmd/dicomforge/
 | `--output` | Output directory name | `dicom_series` |
 | `--seed` | Random seed for reproducibility | auto-generated |
 | `--num-studies` | Number of studies to generate | `1` |
+| `--num-patients` | Number of patients (studies distributed among them) | `1` |
 | `--workers` | Number of parallel workers | CPU core count |
 | `--help` | Show help message | - |
 
@@ -107,6 +108,9 @@ go build -o dicomforge ./cmd/dicomforge/
 
 # Generate multiple studies (useful for testing study management)
 ./dicomforge --num-images 30 --total-size 500MB --num-studies 3
+
+# Generate multiple patients with studies distributed among them
+./dicomforge --num-images 60 --total-size 1GB --num-studies 6 --num-patients 2
 
 # Limit parallelism (useful on resource-constrained systems)
 ./dicomforge --num-images 100 --total-size 1GB --workers 4
@@ -143,7 +147,7 @@ This hierarchy follows the DICOM standard and is compatible with:
 - **Visual overlay**: Each image shows "File X/Y" text for easy verification
 - **Parallel generation**: Worker pool for fast generation (~4.5x speedup)
 - **Realistic metadata**: Simulated MRI parameters from major vendors (Siemens, GE, Philips)
-- **Realistic patient names**: Generated French patient names
+- **Realistic patient names**: Generated patient names (80% English, 20% French)
 - **Reproducible output**: Same seed produces identical files
 - **Window/Level tags**: Proper display settings for DICOM viewers
 
