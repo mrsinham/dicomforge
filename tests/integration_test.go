@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	internaldicom "github.com/mrsinham/dicomforge/internal/dicom"
+	"github.com/mrsinham/dicomforge/internal/dicom/edgecases"
 	"github.com/mrsinham/dicomforge/internal/util"
 	"github.com/suyashkumar/dicom"
 	"github.com/suyashkumar/dicom/pkg/tag"
@@ -571,4 +572,141 @@ func TestCustomTags(t *testing.T) {
 			t.Errorf("ReferringPhysicianName = %s, want Dr Custom^Name", val)
 		}
 	}
+}
+
+// TestEdgeCases_SpecialChars tests that special character names are generated
+func TestEdgeCases_SpecialChars(t *testing.T) {
+	tmpDir := t.TempDir()
+	opts := internaldicom.GeneratorOptions{
+		NumImages:   5,
+		TotalSize:   "500KB",
+		OutputDir:   tmpDir,
+		Seed:        42,
+		NumStudies:  1,
+		NumPatients: 1,
+		EdgeCaseConfig: edgecases.Config{
+			Percentage: 100,
+			Types:      []edgecases.EdgeCaseType{edgecases.SpecialChars},
+		},
+	}
+
+	files, err := internaldicom.GenerateDICOMSeries(opts)
+	if err != nil {
+		t.Fatalf("GenerateDICOMSeries failed: %v", err)
+	}
+
+	// Read first file and verify name has special characters
+	ds, err := dicom.ParseFile(files[0].Path, nil)
+	if err != nil {
+		t.Fatalf("ParseFile failed: %v", err)
+	}
+
+	nameElem, err := ds.FindElementByTag(tag.PatientName)
+	if err != nil {
+		t.Fatalf("PatientName not found: %v", err)
+	}
+	name := nameElem.Value.GetValue().([]string)[0]
+
+	hasSpecial := false
+	for _, r := range name {
+		if r == '-' || r == '\'' || r > 127 {
+			hasSpecial = true
+			break
+		}
+	}
+	if !hasSpecial {
+		t.Errorf("Expected special characters in name: %s", name)
+	}
+	t.Logf("✓ Generated name with special characters: %s", name)
+}
+
+// TestEdgeCases_LongNames tests that long names are generated
+func TestEdgeCases_LongNames(t *testing.T) {
+	tmpDir := t.TempDir()
+	opts := internaldicom.GeneratorOptions{
+		NumImages:   5,
+		TotalSize:   "500KB",
+		OutputDir:   tmpDir,
+		Seed:        42,
+		NumStudies:  1,
+		NumPatients: 1,
+		EdgeCaseConfig: edgecases.Config{
+			Percentage: 100,
+			Types:      []edgecases.EdgeCaseType{edgecases.LongNames},
+		},
+	}
+
+	files, err := internaldicom.GenerateDICOMSeries(opts)
+	if err != nil {
+		t.Fatalf("GenerateDICOMSeries failed: %v", err)
+	}
+
+	// Read first file and verify name is long
+	ds, err := dicom.ParseFile(files[0].Path, nil)
+	if err != nil {
+		t.Fatalf("ParseFile failed: %v", err)
+	}
+
+	nameElem, err := ds.FindElementByTag(tag.PatientName)
+	if err != nil {
+		t.Fatalf("PatientName not found: %v", err)
+	}
+	name := nameElem.Value.GetValue().([]string)[0]
+
+	if len(name) < 50 {
+		t.Errorf("Expected long name (>=50 chars), got %d chars: %s", len(name), name)
+	}
+	t.Logf("✓ Generated long name (%d chars): %s", len(name), name)
+}
+
+// TestEdgeCases_Percentage tests that edge case percentage is respected
+func TestEdgeCases_Percentage(t *testing.T) {
+	tmpDir := t.TempDir()
+	opts := internaldicom.GeneratorOptions{
+		NumImages:   20,
+		TotalSize:   "2MB",
+		OutputDir:   tmpDir,
+		Seed:        42,
+		NumStudies:  20,
+		NumPatients: 20,
+		EdgeCaseConfig: edgecases.Config{
+			Percentage: 50,
+			Types:      []edgecases.EdgeCaseType{edgecases.LongNames},
+		},
+	}
+
+	files, err := internaldicom.GenerateDICOMSeries(opts)
+	if err != nil {
+		t.Fatalf("GenerateDICOMSeries failed: %v", err)
+	}
+
+	// Count files with long names (>50 chars)
+	longNameCount := 0
+	uniqueNames := make(map[string]bool)
+	for _, f := range files {
+		ds, err := dicom.ParseFile(f.Path, nil)
+		if err != nil {
+			t.Fatalf("ParseFile failed: %v", err)
+		}
+		nameElem, _ := ds.FindElementByTag(tag.PatientName)
+		name := nameElem.Value.GetValue().([]string)[0]
+		uniqueNames[name] = true
+	}
+
+	for name := range uniqueNames {
+		if len(name) > 50 {
+			longNameCount++
+		}
+	}
+
+	totalPatients := len(uniqueNames)
+	t.Logf("Found %d unique patients, %d with long names", totalPatients, longNameCount)
+
+	// Should be roughly 50% (allow 20-80% range for randomness with small sample)
+	minExpected := totalPatients * 20 / 100
+	maxExpected := totalPatients * 80 / 100
+	if longNameCount < minExpected || longNameCount > maxExpected {
+		t.Errorf("Expected ~50%% long names (%d-%d of %d), got %d", minExpected, maxExpected, totalPatients, longNameCount)
+	}
+	t.Logf("✓ Edge case percentage test passed")
 }

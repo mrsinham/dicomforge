@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"sync"
 
+	"github.com/mrsinham/dicomforge/internal/dicom/edgecases"
 	"github.com/mrsinham/dicomforge/internal/util"
 	"github.com/suyashkumar/dicom"
 	"github.com/suyashkumar/dicom/pkg/frame"
@@ -169,6 +170,9 @@ type GeneratorOptions struct {
 
 	// Custom tag overrides
 	CustomTags util.ParsedTags // User-defined tag overrides
+
+	// Edge case generation
+	EdgeCaseConfig edgecases.Config // Edge case generation config
 }
 
 // getTagValue returns the custom tag value if set, otherwise returns the generated value.
@@ -378,6 +382,12 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 	// Create RNG for patient name generation
 	rng := randv2.New(randv2.NewPCG(uint64(seed), uint64(seed)))
 
+	// Create edge case applicator if enabled
+	var edgeCaseApplicator *edgecases.Applicator
+	if opts.EdgeCaseConfig.IsEnabled() {
+		edgeCaseApplicator = edgecases.NewApplicator(opts.EdgeCaseConfig, rng)
+	}
+
 	// Generate all patients
 	patients := make([]patientInfo, opts.NumPatients)
 	for i := 0; i < opts.NumPatients; i++ {
@@ -387,15 +397,22 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 			rng.IntN(12)+1,    // 1-12
 			rng.IntN(28)+1)    // 1-28
 		generatedID := fmt.Sprintf("PID%06d", rng.IntN(900000)+100000)
+		generatedName := util.GeneratePatientName(generatedSex, rng)
+
+		// Apply edge cases if enabled and dice roll succeeds
+		if edgeCaseApplicator != nil && edgeCaseApplicator.ShouldApply() {
+			generatedName = edgeCaseApplicator.ApplyToPatientName(generatedSex, generatedName)
+			generatedID = edgeCaseApplicator.ApplyToPatientID(generatedID)
+			generatedBirthDate = edgeCaseApplicator.ApplyToBirthDate(generatedBirthDate)
+		}
 
 		// Apply custom tags - patient-level custom tags apply to all patients
 		patients[i] = patientInfo{
 			ID:        getTagValue(opts.CustomTags, "PatientID", generatedID),
 			Sex:       getTagValue(opts.CustomTags, "PatientSex", generatedSex),
 			BirthDate: getTagValue(opts.CustomTags, "PatientBirthDate", generatedBirthDate),
+			Name:      getTagValue(opts.CustomTags, "PatientName", generatedName),
 		}
-		generatedName := util.GeneratePatientName(patients[i].Sex, rng)
-		patients[i].Name = getTagValue(opts.CustomTags, "PatientName", generatedName)
 	}
 
 	// Generate institution info (shared or varied per study)

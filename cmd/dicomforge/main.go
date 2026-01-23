@@ -7,6 +7,7 @@ import (
 	"runtime"
 
 	"github.com/mrsinham/dicomforge/internal/dicom"
+	"github.com/mrsinham/dicomforge/internal/dicom/edgecases"
 	"github.com/mrsinham/dicomforge/internal/util"
 )
 
@@ -36,6 +37,11 @@ func main() {
 		tagFlags = append(tagFlags, s)
 		return nil
 	})
+
+	// Edge case options
+	edgeCasePercentage := flag.Int("edge-cases", 0, "Percentage of patients with edge case variations (0-100)")
+	edgeCaseTypes := flag.String("edge-case-types", "special-chars,long-names,missing-tags,old-dates,varied-ids",
+		"Comma-separated edge case types to enable")
 
 	help := flag.Bool("help", false, "Show help message")
 	showVersion := flag.Bool("version", false, "Show version")
@@ -108,6 +114,25 @@ func main() {
 		fmt.Printf("Custom tags: %d specified\n", len(parsedTags))
 	}
 
+	// Parse and validate edge case config
+	var edgeCaseConfig edgecases.Config
+	if *edgeCasePercentage > 0 {
+		types, err := edgecases.ParseTypes(*edgeCaseTypes)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		edgeCaseConfig = edgecases.Config{
+			Percentage: *edgeCasePercentage,
+			Types:      types,
+		}
+		if err := edgeCaseConfig.Validate(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Edge cases: %d%% of patients with types %v\n", *edgeCasePercentage, types)
+	}
+
 	// Create generator options
 	opts := dicom.GeneratorOptions{
 		NumImages:      *numImages,
@@ -123,6 +148,7 @@ func main() {
 		Priority:       parsedPriority,
 		VariedMetadata: *variedMetadata,
 		CustomTags:     parsedTags,
+		EdgeCaseConfig: edgeCaseConfig,
 	}
 
 	// Generate DICOM series
@@ -183,6 +209,11 @@ func printHelp() {
 	fmt.Println("Custom tags:")
 	fmt.Println("  --tag <NAME=VALUE>    Set DICOM tag value (repeatable)")
 	fmt.Println("                        Example: --tag \"InstitutionName=CHU Bordeaux\"")
+	fmt.Println()
+	fmt.Println("Edge case options:")
+	fmt.Println("  --edge-cases <N>      Percentage of patients with edge case variations (0-100)")
+	fmt.Println("  --edge-case-types <T> Comma-separated types: special-chars,long-names,")
+	fmt.Println("                        missing-tags,old-dates,varied-ids (default: all)")
 	fmt.Println()
 	fmt.Println("  --help                Show this help message")
 	fmt.Println()
