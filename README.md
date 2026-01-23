@@ -137,7 +137,7 @@ When using `--edge-cases`, you can specify which types to enable with `--edge-ca
   --edge-cases 25 --edge-case-types "special-chars,long-names"
 
 # Generate all edge case types for comprehensive testing
-./dicomforge --num-images 50 --total-size 500MB --num-patients 10 --edge-cases 50
+./dicomforge --num-images 50 --total-size 500MB --num-studies 10 --num-patients 10 --edge-cases 50
 ```
 
 ## Output Structure
