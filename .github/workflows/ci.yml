@@ -78,3 +78,20 @@ jobs:
           fail_ci_if_error: false
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Install DCMTK
+        run: sudo apt-get update && sudo apt-get install -y dcmtk
+
+      - name: Run E2E tests
+        run: go test ./tests/e2e/... -v
