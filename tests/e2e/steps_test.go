@@ -106,6 +106,10 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^dcmdump should successfully parse all files in "([^"]*)"$`, tc.dcmdumpShouldParse)
 	sc.Step(`^"([^"]*)" should exist$`, tc.shouldExist)
 	sc.Step(`^"([^"]*)" should have patient/study/series hierarchy$`, tc.shouldHaveHierarchy)
+	sc.Step(`^DICOM tag "([^"]*)" in "([^"]*)" should contain "([^"]*)"$`, tc.dicomTagShouldContain)
+	sc.Step(`^DICOM tag "([^"]*)" in "([^"]*)" should match across all files$`, tc.dicomTagShouldMatch)
+	sc.Step(`^"([^"]*)" should contain (\d+) study directories$`, tc.shouldContainStudyDirs)
+	sc.Step(`^"([^"]*)" should contain (\d+) patient directories$`, tc.shouldContainPatientDirs)
 }
 
 func (tc *testContext) dicomforgeIsBuilt() error {
@@ -267,4 +271,113 @@ func splitArgs(s string) []string {
 		args = append(args, current.String())
 	}
 	return args
+}
+
+func (tc *testContext) dicomTagShouldContain(tagName, path, expected string) error {
+	path = strings.ReplaceAll(path, "{tmpdir}", tc.tmpDir)
+
+	files, err := findDICOMFiles(path)
+	if err != nil {
+		return fmt.Errorf("failed to find DICOM files: %w", err)
+	}
+
+	if len(files) == 0 {
+		return fmt.Errorf("no DICOM files found in %s", path)
+	}
+
+	// Check first file for the tag value
+	value, err := getDICOMTagValue(files[0], tagName)
+	if err != nil {
+		return err
+	}
+
+	if !strings.Contains(value, expected) {
+		return fmt.Errorf("DICOM tag %s value %q does not contain %q", tagName, value, expected)
+	}
+	return nil
+}
+
+func (tc *testContext) dicomTagShouldMatch(tagName, path string) error {
+	path = strings.ReplaceAll(path, "{tmpdir}", tc.tmpDir)
+
+	files, err := findDICOMFiles(path)
+	if err != nil {
+		return fmt.Errorf("failed to find DICOM files: %w", err)
+	}
+
+	if len(files) < 2 {
+		return fmt.Errorf("need at least 2 DICOM files to compare, found %d", len(files))
+	}
+
+	firstValue, err := getDICOMTagValue(files[0], tagName)
+	if err != nil {
+		return err
+	}
+
+	for _, file := range files[1:] {
+		value, err := getDICOMTagValue(file, tagName)
+		if err != nil {
+			return err
+		}
+		if value != firstValue {
+			return fmt.Errorf("DICOM tag %s mismatch: %q vs %q", tagName, firstValue, value)
+		}
+	}
+	return nil
+}
+
+func (tc *testContext) shouldContainStudyDirs(path string, count int) error {
+	path = strings.ReplaceAll(path, "{tmpdir}", tc.tmpDir)
+
+	// Count all ST* directories across all patients
+	var studyCount int
+	ptDirs, _ := filepath.Glob(filepath.Join(path, "PT*"))
+	for _, ptDir := range ptDirs {
+		stDirs, _ := filepath.Glob(filepath.Join(ptDir, "ST*"))
+		studyCount += len(stDirs)
+	}
+
+	if studyCount != count {
+		return fmt.Errorf("expected %d study directories, found %d", count, studyCount)
+	}
+	return nil
+}
+
+func (tc *testContext) shouldContainPatientDirs(path string, count int) error {
+	path = strings.ReplaceAll(path, "{tmpdir}", tc.tmpDir)
+
+	ptDirs, _ := filepath.Glob(filepath.Join(path, "PT*"))
+	if len(ptDirs) != count {
+		return fmt.Errorf("expected %d patient directories, found %d", count, len(ptDirs))
+	}
+	return nil
+}
+
+// getDICOMTagValue uses dcmdump to extract a tag value from a DICOM file
+func getDICOMTagValue(file, tagName string) (string, error) {
+	cmd := exec.Command("dcmdump", "+P", tagName, file)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("dcmdump failed for %s: %w\n%s", file, err, stderr.String())
+	}
+
+	// Parse dcmdump output to extract value
+	// Format: (0010,0010) PN [SMITH^JOHN]   # PatientName
+	output := stdout.String()
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		if strings.Contains(line, tagName) || strings.Contains(line, "[") {
+			// Extract value between [ and ]
+			start := strings.Index(line, "[")
+			end := strings.LastIndex(line, "]")
+			if start != -1 && end > start {
+				return line[start+1 : end], nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("tag %s not found in dcmdump output for %s", tagName, file)
 }
