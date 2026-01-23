@@ -488,3 +488,87 @@ func TestCategorizationTags(t *testing.T) {
 		t.Error("ProtocolName tag not found")
 	}
 }
+
+// TestCustomTags tests that custom DICOM tags are correctly applied
+func TestCustomTags(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	customTags, err := util.ParseTagFlags([]string{
+		"InstitutionName=Custom Hospital",
+		"ReferringPhysicianName=Dr Custom^Name",
+		"BodyPartExamined=CHEST",
+		"PatientName=Test^Patient",
+	})
+	if err != nil {
+		t.Fatalf("ParseTagFlags failed: %v", err)
+	}
+
+	opts := internaldicom.GeneratorOptions{
+		NumImages:   2,
+		TotalSize:   "1MB",
+		OutputDir:   tmpDir,
+		Seed:        42,
+		NumStudies:  1,
+		NumPatients: 1,
+		CustomTags:  customTags,
+	}
+
+	files, err := internaldicom.GenerateDICOMSeries(opts)
+	if err != nil {
+		t.Fatalf("GenerateDICOMSeries failed: %v", err)
+	}
+
+	if len(files) != 2 {
+		t.Fatalf("Expected 2 files, got %d", len(files))
+	}
+
+	// Read first file and verify custom tags
+	ds, err := dicom.ParseFile(files[0].Path, nil)
+	if err != nil {
+		t.Fatalf("Failed to parse DICOM: %v", err)
+	}
+
+	// Verify InstitutionName
+	elem, err := ds.FindElementByTag(tag.InstitutionName)
+	if err != nil {
+		t.Error("InstitutionName tag not found")
+	} else {
+		val := elem.Value.GetValue().([]string)[0]
+		if val != "Custom Hospital" {
+			t.Errorf("InstitutionName = %s, want Custom Hospital", val)
+		}
+	}
+
+	// Verify PatientName
+	elem, err = ds.FindElementByTag(tag.PatientName)
+	if err != nil {
+		t.Error("PatientName tag not found")
+	} else {
+		val := elem.Value.GetValue().([]string)[0]
+		if val != "Test^Patient" {
+			t.Errorf("PatientName = %s, want Test^Patient", val)
+		}
+	}
+
+	// Verify BodyPartExamined
+	elem, err = ds.FindElementByTag(tag.BodyPartExamined)
+	if err != nil {
+		t.Error("BodyPartExamined tag not found")
+	} else {
+		val := elem.Value.GetValue().([]string)[0]
+		if val != "CHEST" {
+			t.Errorf("BodyPartExamined = %s, want CHEST", val)
+		}
+	}
+
+	// Verify ReferringPhysicianName
+	elem, err = ds.FindElementByTag(tag.ReferringPhysicianName)
+	if err != nil {
+		t.Error("ReferringPhysicianName tag not found")
+	} else {
+		val := elem.Value.GetValue().([]string)[0]
+		if val != "Dr Custom^Name" {
+			t.Errorf("ReferringPhysicianName = %s, want Dr Custom^Name", val)
+		}
+	}
+}
