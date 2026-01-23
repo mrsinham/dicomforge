@@ -152,3 +152,48 @@ func GeneratePatientName(sex string, rng *rand.Rand) string {
 	// DICOM format: LASTNAME^FIRSTNAME
 	return lastName + "^" + firstName
 }
+
+// GeneratePhysicianName generates a realistic physician name.
+// Format: "LASTNAME^FIRSTNAME" or "Dr LASTNAME^FIRSTNAME" (with title)
+// Uses same name pools as patients, 50% chance of "Dr" title.
+// If rng is nil, uses shared default RNG.
+func GeneratePhysicianName(rng *rand.Rand) string {
+	if rng == nil {
+		rng = defaultRNG
+	}
+
+	// Randomly pick sex for name generation
+	sex := "M"
+	if rng.Float64() < 0.5 {
+		sex = "F"
+	}
+
+	// 20% chance of French name
+	useFrench := rng.Float64() < FrenchNameProbability
+
+	var firstName string
+	var lastName string
+
+	if useFrench {
+		if sex == "M" {
+			firstName = FrenchMaleFirstNames[rng.IntN(len(FrenchMaleFirstNames))]
+		} else {
+			firstName = FrenchFemaleFirstNames[rng.IntN(len(FrenchFemaleFirstNames))]
+		}
+		lastName = FrenchLastNames[rng.IntN(len(FrenchLastNames))]
+	} else {
+		if sex == "M" {
+			firstName = EnglishMaleFirstNames[rng.IntN(len(EnglishMaleFirstNames))]
+		} else {
+			firstName = EnglishFemaleFirstNames[rng.IntN(len(EnglishFemaleFirstNames))]
+		}
+		lastName = EnglishLastNames[rng.IntN(len(EnglishLastNames))]
+	}
+
+	// DICOM PN format: LASTNAME^FIRSTNAME
+	// 50% chance of Dr title
+	if rng.Float64() < 0.5 {
+		return "Dr " + lastName + "^" + firstName
+	}
+	return lastName + "^" + firstName
+}

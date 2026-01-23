@@ -84,3 +84,43 @@ func TestGeneratePatientName_Sex(t *testing.T) {
 		}
 	}
 }
+
+func TestGeneratePhysicianName_Format(t *testing.T) {
+	name := GeneratePhysicianName(nil)
+
+	if !strings.Contains(name, "^") {
+		t.Errorf("Physician name should contain '^' separator, got: %s", name)
+	}
+
+	parts := strings.Split(name, "^")
+	if len(parts) < 2 {
+		t.Errorf("Physician name should have at least 2 parts, got: %s", name)
+	}
+}
+
+func TestGeneratePhysicianName_HasTitle(t *testing.T) {
+	// Run multiple times to check title prefix appears sometimes
+	hasTitle := false
+	for i := 0; i < 100; i++ {
+		name := GeneratePhysicianName(nil)
+		if strings.HasPrefix(name, "Dr") {
+			hasTitle = true
+			break
+		}
+	}
+	if !hasTitle {
+		t.Error("Expected some physician names to have Dr title")
+	}
+}
+
+func TestGeneratePhysicianName_Deterministic(t *testing.T) {
+	rng1 := rand.New(rand.NewPCG(42, 42))
+	name1 := GeneratePhysicianName(rng1)
+
+	rng2 := rand.New(rand.NewPCG(42, 42))
+	name2 := GeneratePhysicianName(rng2)
+
+	if name1 != name2 {
+		t.Errorf("Same seed should produce same name: %s != %s", name1, name2)
+	}
+}
