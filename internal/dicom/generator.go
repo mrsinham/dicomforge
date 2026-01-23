@@ -166,6 +166,17 @@ type GeneratorOptions struct {
 	BodyPart       string        // Fixed body part (empty = random per modality)
 	Priority       util.Priority // Exam priority
 	VariedMetadata bool          // Generate varied institutions/physicians per study
+
+	// Custom tag overrides
+	CustomTags util.ParsedTags // User-defined tag overrides
+}
+
+// getTagValue returns the custom tag value if set, otherwise returns the generated value.
+func getTagValue(customTags util.ParsedTags, name, generated string) string {
+	if val, ok := customTags.Get(name); ok {
+		return val
+	}
+	return generated
 }
 
 // patientInfo holds generated patient data
@@ -370,15 +381,21 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 	// Generate all patients
 	patients := make([]patientInfo, opts.NumPatients)
 	for i := 0; i < opts.NumPatients; i++ {
+		generatedSex := []string{"M", "F"}[rng.IntN(2)]
+		generatedBirthDate := fmt.Sprintf("%04d%02d%02d",
+			rng.IntN(51)+1950, // 1950-2000
+			rng.IntN(12)+1,    // 1-12
+			rng.IntN(28)+1)    // 1-28
+		generatedID := fmt.Sprintf("PID%06d", rng.IntN(900000)+100000)
+
+		// Apply custom tags - patient-level custom tags apply to all patients
 		patients[i] = patientInfo{
-			ID:   fmt.Sprintf("PID%06d", rng.IntN(900000)+100000),
-			Sex:  []string{"M", "F"}[rng.IntN(2)],
-			BirthDate: fmt.Sprintf("%04d%02d%02d",
-				rng.IntN(51)+1950, // 1950-2000
-				rng.IntN(12)+1,    // 1-12
-				rng.IntN(28)+1),   // 1-28
+			ID:        getTagValue(opts.CustomTags, "PatientID", generatedID),
+			Sex:       getTagValue(opts.CustomTags, "PatientSex", generatedSex),
+			BirthDate: getTagValue(opts.CustomTags, "PatientBirthDate", generatedBirthDate),
 		}
-		patients[i].Name = util.GeneratePatientName(patients[i].Sex, rng)
+		generatedName := util.GeneratePatientName(patients[i].Sex, rng)
+		patients[i].Name = getTagValue(opts.CustomTags, "PatientName", generatedName)
 	}
 
 	// Generate institution info (shared or varied per study)
@@ -405,6 +422,18 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 	bodyPart := opts.BodyPart
 	if bodyPart == "" {
 		bodyPart = util.GenerateBodyPart("MR", rng)
+	}
+
+	// Generate default study-level values (used when --varied-metadata is false)
+	// These are generated once and reused across all studies
+	var defaultReferringPhysician, defaultPerformingPhysician, defaultOperatorName, defaultStationName string
+	var defaultAccessionNumber string
+	if !opts.VariedMetadata {
+		defaultReferringPhysician = util.GeneratePhysicianName(rng)
+		defaultPerformingPhysician = util.GeneratePhysicianName(rng)
+		defaultOperatorName = util.GeneratePhysicianName(rng)
+		defaultStationName = util.GenerateStationName("MR", bodyPart, rng)
+		defaultAccessionNumber = fmt.Sprintf("ACC%08d", rng.IntN(90000000)+10000000)
 	}
 
 	// Calculate studies per patient (distribute evenly)
@@ -472,12 +501,13 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 
 		// Generate study-specific info
 		studyID := fmt.Sprintf("STD%04d", rng.IntN(9000)+1000)
-		var studyDescription string
+		var generatedStudyDescription string
 		if opts.NumStudies > 1 {
-			studyDescription = fmt.Sprintf("Brain MRI - Study %d", studyNum)
+			generatedStudyDescription = fmt.Sprintf("Brain MRI - Study %d", studyNum)
 		} else {
-			studyDescription = "Brain MRI"
+			generatedStudyDescription = "Brain MRI"
 		}
+		studyDescription := getTagValue(opts.CustomTags, "StudyDescription", generatedStudyDescription)
 
 		// Generate study date and time
 		studyDate := fmt.Sprintf("%04d%02d%02d",
@@ -530,12 +560,44 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 			studyInstitution = defaultInstitution
 		}
 
-		referringPhysician := util.GeneratePhysicianName(rng)
-		performingPhysician := util.GeneratePhysicianName(rng)
-		operatorName := util.GeneratePhysicianName(rng)
+		// Generate or use defaults for study-level tags
+		var referringPhysician, performingPhysician, operatorName, stationName, accessionNumber string
+		if opts.VariedMetadata {
+			// Generate new values per study when varied
+			referringPhysician = util.GeneratePhysicianName(rng)
+			performingPhysician = util.GeneratePhysicianName(rng)
+			operatorName = util.GeneratePhysicianName(rng)
+			stationName = util.GenerateStationName("MR", bodyPart, rng)
+			accessionNumber = fmt.Sprintf("ACC%08d", rng.IntN(90000000)+10000000)
+		} else {
+			// Use defaults (same across all studies)
+			referringPhysician = defaultReferringPhysician
+			performingPhysician = defaultPerformingPhysician
+			operatorName = defaultOperatorName
+			stationName = defaultStationName
+			accessionNumber = defaultAccessionNumber
+		}
+
+		// Apply custom tag overrides for study-level tags
+		institutionName := getTagValue(opts.CustomTags, "InstitutionName", studyInstitution.Name)
+		institutionalDepartmentName := getTagValue(opts.CustomTags, "InstitutionalDepartmentName", studyInstitution.Department)
+		referringPhysician = getTagValue(opts.CustomTags, "ReferringPhysicianName", referringPhysician)
+		performingPhysician = getTagValue(opts.CustomTags, "PerformingPhysicianName", performingPhysician)
+		operatorName = getTagValue(opts.CustomTags, "OperatorsName", operatorName)
+		stationName = getTagValue(opts.CustomTags, "StationName", stationName)
+		accessionNumber = getTagValue(opts.CustomTags, "AccessionNumber", accessionNumber)
+		requestedProcedurePriority := getTagValue(opts.CustomTags, "RequestedProcedurePriority", opts.Priority.String())
+
+		// Generate series-level tags with custom overrides
 		protocolName := util.GenerateProtocolName("MR", bodyPart, rng)
 		clinicalIndication := util.GenerateClinicalIndication("MR", bodyPart, rng)
-		stationName := util.GenerateStationName("MR", bodyPart, rng)
+		generatedSeriesDescription := fmt.Sprintf("Series 1 - %s", seriesSequenceName)
+
+		// Apply custom tag overrides for series-level tags
+		protocolName = getTagValue(opts.CustomTags, "ProtocolName", protocolName)
+		bodyPartExamined := getTagValue(opts.CustomTags, "BodyPartExamined", bodyPart)
+		requestedProcedureDescription := getTagValue(opts.CustomTags, "RequestedProcedureDescription", clinicalIndication)
+		seriesDescription := getTagValue(opts.CustomTags, "SeriesDescription", generatedSeriesDescription)
 
 		// Build tasks for each image in this study
 		for instanceInStudy := 1; instanceInStudy <= numImagesThisStudy; instanceInStudy++ {
@@ -569,6 +631,7 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 				mustNewElement(tag.StudyDescription, []string{studyDescription}),
 				mustNewElement(tag.SeriesInstanceUID, []string{seriesUID}),
 				mustNewElement(tag.SeriesNumber, []string{fmt.Sprintf("%d", 1)}),
+				mustNewElement(tag.SeriesDescription, []string{seriesDescription}),
 				mustNewElement(tag.Modality, []string{"MR"}),
 				mustNewElement(tag.SOPInstanceUID, []string{sopInstanceUID}),
 				mustNewElement(tag.SOPClassUID, []string{"1.2.840.10008.5.1.4.1.1.4"}),
@@ -600,17 +663,18 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 				mustNewElement(tag.PixelRepresentation, []int{0}),
 				mustNewElement(tag.SamplesPerPixel, []int{1}),
 				mustNewElement(tag.PhotometricInterpretation, []string{"MONOCHROME2"}),
-				// Categorization tags
-				mustNewElement(tag.InstitutionName, []string{studyInstitution.Name}),
-				mustNewElement(tag.InstitutionalDepartmentName, []string{studyInstitution.Department}),
+				// Categorization tags (with custom tag overrides applied)
+				mustNewElement(tag.InstitutionName, []string{institutionName}),
+				mustNewElement(tag.InstitutionalDepartmentName, []string{institutionalDepartmentName}),
 				mustNewElement(tag.StationName, []string{stationName}),
 				mustNewElement(tag.ReferringPhysicianName, []string{referringPhysician}),
 				mustNewElement(tag.PerformingPhysicianName, []string{performingPhysician}),
 				mustNewElement(tag.OperatorsName, []string{operatorName}),
-				mustNewElement(tag.BodyPartExamined, []string{bodyPart}),
+				mustNewElement(tag.BodyPartExamined, []string{bodyPartExamined}),
 				mustNewElement(tag.ProtocolName, []string{protocolName}),
-				mustNewElement(tag.RequestedProcedureDescription, []string{clinicalIndication}),
-				mustNewElement(tag.RequestedProcedurePriority, []string{opts.Priority.String()}),
+				mustNewElement(tag.RequestedProcedureDescription, []string{requestedProcedureDescription}),
+				mustNewElement(tag.RequestedProcedurePriority, []string{requestedProcedurePriority}),
+				mustNewElement(tag.AccessionNumber, []string{accessionNumber}),
 			}
 
 			// Generate deterministic pixel seed for this specific image

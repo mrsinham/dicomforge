@@ -122,6 +122,7 @@ func main() {
 		BodyPart:       *bodyPart,
 		Priority:       parsedPriority,
 		VariedMetadata: *variedMetadata,
+		CustomTags:     parsedTags,
 	}
 
 	// Generate DICOM series
