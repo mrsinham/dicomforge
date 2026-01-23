@@ -95,7 +95,21 @@ go build -o dicomforge ./cmd/dicomforge/
 | `--num-studies` | Number of studies to generate | `1` |
 | `--num-patients` | Number of patients (studies distributed among them) | `1` |
 | `--workers` | Number of parallel workers | CPU core count |
+| `--edge-cases` | Percentage of patients with edge case variations (0-100) | `0` |
+| `--edge-case-types` | Comma-separated edge case types to enable | all types |
 | `--help` | Show help message | - |
+
+### Edge Case Types
+
+When using `--edge-cases`, you can specify which types to enable with `--edge-case-types`:
+
+| Type | Description |
+|------|-------------|
+| `special-chars` | Names with accents, hyphens, apostrophes (Müller-Schmidt, O'Connor, François) |
+| `long-names` | Names at DICOM's 64-character limit |
+| `old-dates` | Birth dates from 1900-1950, or partial dates (YYYY, YYYYMM) |
+| `varied-ids` | Patient IDs with dashes, letters, spaces, or at max length |
+| `missing-tags` | Omit optional DICOM tags (BodyPartExamined, StudyDescription, etc.) |
 
 ### Examples
 
@@ -117,6 +131,13 @@ go build -o dicomforge ./cmd/dicomforge/
 
 # Large dataset for stress testing
 ./dicomforge --num-images 500 --total-size 4GB --output stress_test
+
+# Generate edge cases for robustness testing (25% of patients)
+./dicomforge --num-images 100 --total-size 1GB --num-patients 20 \
+  --edge-cases 25 --edge-case-types "special-chars,long-names"
+
+# Generate all edge case types for comprehensive testing
+./dicomforge --num-images 50 --total-size 500MB --num-patients 10 --edge-cases 50
 ```
 
 ## Output Structure
@@ -148,6 +169,7 @@ This hierarchy follows the DICOM standard and is compatible with:
 - **Parallel generation**: Worker pool for fast generation (~4.5x speedup)
 - **Realistic metadata**: Simulated MRI parameters from major vendors (Siemens, GE, Philips)
 - **Realistic patient names**: Generated patient names (80% English, 20% French)
+- **Edge case generation**: Special characters, long names, old dates, varied IDs for robustness testing
 - **Reproducible output**: Same seed produces identical files
 - **Window/Level tags**: Proper display settings for DICOM viewers
 
