@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/mrsinham/dicomforge/internal/dicom/edgecases"
+	"github.com/mrsinham/dicomforge/internal/dicom/modalities"
 	"github.com/mrsinham/dicomforge/internal/util"
 	"github.com/suyashkumar/dicom"
 	"github.com/suyashkumar/dicom/pkg/frame"
@@ -161,6 +162,9 @@ type GeneratorOptions struct {
 	NumPatients int // Number of patients (studies are distributed among patients)
 	Workers     int // Number of parallel workers (0 = auto-detect based on CPU cores)
 
+	// Modality selection
+	Modality modalities.Modality // Imaging modality (MR, CT, etc.)
+
 	// Categorization options
 	Institution    string        // Fixed institution name (empty = random)
 	Department     string        // Fixed department name (empty = random)
@@ -201,6 +205,7 @@ type imageTask struct {
 	textOverlay     string
 	pixelSeed       uint64 // Deterministic seed for this image's pixel generation
 	metadata        []*dicom.Element
+	pixelConfig     modalities.PixelConfig // Modality-specific pixel configuration
 	// Result info
 	studyUID       string
 	seriesUID      string
@@ -225,6 +230,7 @@ type GeneratedFile struct {
 func generateImageFromTask(task imageTask) error {
 	width, height := task.width, task.height
 	pixelsPerFrame := width * height
+	cfg := task.pixelConfig
 
 	// Create frame
 	nativeFrame := frame.NewNativeFrame[uint16](16, height, width, pixelsPerFrame, 1)
@@ -232,9 +238,13 @@ func generateImageFromTask(task imageTask) error {
 	// Create deterministic RNG for this specific image
 	rng := randv2.New(randv2.NewPCG(task.pixelSeed, task.pixelSeed))
 
-	// Fill with synthetic brain-like pattern with noise everywhere
+	// Fill with synthetic pattern based on modality
 	centerX, centerY := float64(width)/2, float64(height)/2
 	maxDist := math.Sqrt(centerX*centerX + centerY*centerY)
+
+	// Calculate value range based on pixel config
+	valueRange := float64(cfg.MaxValue - cfg.MinValue)
+	baseValue := float64(cfg.BaseValue)
 
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
@@ -242,17 +252,25 @@ func generateImageFromTask(task imageTask) error {
 			dy := float64(y) - centerY
 			dist := math.Sqrt(dx*dx + dy*dy)
 
-			baseIntensity := (1.0 - (dist / maxDist)) * 12000.0
+			// Base intensity decreases from center (simulates body cross-section)
+			normalizedDist := dist / maxDist
+			baseIntensity := baseValue + (1.0-normalizedDist)*valueRange*0.3
 
-			largeNoise := (rng.Float64() - 0.5) * 12000.0
-			mediumNoise := (rng.Float64() - 0.5) * 6000.0
-			fineNoise := (rng.Float64() - 0.5) * 3000.0
+			// Add noise proportional to value range
+			largeNoise := (rng.Float64() - 0.5) * valueRange * 0.3
+			mediumNoise := (rng.Float64() - 0.5) * valueRange * 0.15
+			fineNoise := (rng.Float64() - 0.5) * valueRange * 0.075
 
 			totalNoise := largeNoise + mediumNoise + fineNoise
 			intensity := baseIntensity + totalNoise
 
-			pixelValue := uint16(math.Max(0, math.Min(65535, intensity)))
-			nativeFrame.RawData[y*width+x] = pixelValue
+			// Clamp to valid range and convert to uint16
+			// For signed pixel representation (CT), we store as unsigned with offset
+			minVal := float64(0)
+			maxValInt := (1 << cfg.BitsStored) - 1
+			maxVal := float64(maxValInt)
+			clampedValue := math.Max(minVal, math.Min(maxVal, intensity))
+			nativeFrame.RawData[y*width+x] = uint16(clampedValue)
 		}
 	}
 
@@ -435,10 +453,14 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 		}
 	}
 
+	// Get modality generator
+	modalityGen := modalities.GetGenerator(opts.Modality)
+	modalityStr := string(modalityGen.Modality())
+
 	// Generate body part (if fixed)
 	bodyPart := opts.BodyPart
 	if bodyPart == "" {
-		bodyPart = util.GenerateBodyPart("MR", rng)
+		bodyPart = util.GenerateBodyPart(modalityStr, rng)
 	}
 
 	// Generate default study-level values (used when --varied-metadata is false)
@@ -449,7 +471,7 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 		defaultReferringPhysician = util.GeneratePhysicianName(rng)
 		defaultPerformingPhysician = util.GeneratePhysicianName(rng)
 		defaultOperatorName = util.GeneratePhysicianName(rng)
-		defaultStationName = util.GenerateStationName("MR", bodyPart, rng)
+		defaultStationName = util.GenerateStationName(modalityStr, bodyPart, rng)
 		defaultAccessionNumber = fmt.Sprintf("ACC%08d", rng.IntN(90000000)+10000000)
 	}
 
@@ -493,19 +515,9 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 	tasks := make([]imageTask, 0, opts.NumImages)
 	globalImageIndex := 1
 
-	// Manufacturer options
-	manufacturers := []struct {
-		Name          string
-		Model         string
-		FieldStrength float64
-	}{
-		{"SIEMENS", "Avanto", 1.5},
-		{"SIEMENS", "Skyra", 3.0},
-		{"GE MEDICAL SYSTEMS", "Signa HDxt", 1.5},
-		{"GE MEDICAL SYSTEMS", "Discovery MR750", 3.0},
-		{"PHILIPS", "Achieva", 1.5},
-		{"PHILIPS", "Ingenia", 3.0},
-	}
+	// Get available scanners for this modality
+	scanners := modalityGen.Scanners()
+	pixelConfig := modalityGen.PixelConfig()
 
 	// Phase 1: Build all tasks sequentially (maintains determinism)
 	for studyNum := 1; studyNum <= opts.NumStudies; studyNum++ {
@@ -519,10 +531,11 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 		// Generate study-specific info
 		studyID := fmt.Sprintf("STD%04d", rng.IntN(9000)+1000)
 		var generatedStudyDescription string
+		baseDescription := fmt.Sprintf("%s %s", bodyPart, modalityStr) // e.g., "HEAD CT" or "BRAIN MR"
 		if opts.NumStudies > 1 {
-			generatedStudyDescription = fmt.Sprintf("Brain MRI - Study %d", studyNum)
+			generatedStudyDescription = fmt.Sprintf("%s - Study %d", baseDescription, studyNum)
 		} else {
-			generatedStudyDescription = "Brain MRI"
+			generatedStudyDescription = baseDescription
 		}
 		studyDescription := getTagValue(opts.CustomTags, "StudyDescription", generatedStudyDescription)
 
@@ -536,24 +549,11 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 			rng.IntN(60),  // 0-59 minutes
 			rng.IntN(60))  // 0-59 seconds
 
-		// Generate series-specific MRI parameters (same for all images in series)
-		seriesPixelSpacing := rng.Float64()*1.5 + 0.5                           // 0.5-2.0 mm
-		seriesSliceThickness := rng.Float64()*4.0 + 1.0                         // 1.0-5.0 mm
-		seriesSpacingBetweenSlices := seriesSliceThickness + rng.Float64()*0.5  // slightly larger than thickness
-		seriesEchoTime := rng.Float64()*20.0 + 10.0                             // 10-30 ms
-		seriesRepetitionTime := rng.Float64()*400.0 + 400.0                     // 400-800 ms
-		seriesFlipAngle := rng.Float64()*30.0 + 60.0                            // 60-90 degrees
-		seriesSequenceName := []string{"T1_MPRAGE", "T1_SE", "T2_FSE", "T2_FLAIR"}[rng.IntN(4)]
+		// Select scanner for this study
+		scanner := scanners[rng.IntN(len(scanners))]
 
-		// Select MRI scanner
-		mfr := manufacturers[rng.IntN(len(manufacturers))]
-
-		// Calculate imaging frequency based on field strength (in MHz)
-		imagingFrequency := mfr.FieldStrength * 42.58
-
-		// Window settings for display
-		windowCenter := 500.0 + rng.Float64()*1000.0 // 500-1500
-		windowWidth := 1000.0 + rng.Float64()*1000.0 // 1000-2000
+		// Generate modality-specific series parameters
+		seriesParams := modalityGen.GenerateSeriesParams(scanner, rng)
 
 		// Calculate images for this study
 		numImagesThisStudy := imagesPerStudy
@@ -563,11 +563,9 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 
 		fmt.Printf("\nStudy %d/%d: %d images (Patient: %s)\n", studyNum, opts.NumStudies, numImagesThisStudy, patient.Name)
 		fmt.Printf("  StudyID: %s, Description: %s\n", studyID, studyDescription)
-		fmt.Printf("  Scanner: %s %s (%.1fT)\n", mfr.Name, mfr.Model, mfr.FieldStrength)
-		fmt.Printf("  Sequence: %s, TE=%.1fms, TR=%.1fms, FA=%.1f°\n",
-			seriesSequenceName, seriesEchoTime, seriesRepetitionTime, seriesFlipAngle)
+		fmt.Printf("  Modality: %s, Scanner: %s %s\n", modalityStr, scanner.Manufacturer, scanner.Model)
 		fmt.Printf("  Resolution: PixelSpacing=%.2fmm, SliceThickness=%.2fmm\n",
-			seriesPixelSpacing, seriesSliceThickness)
+			seriesParams.PixelSpacing, seriesParams.SliceThickness)
 
 		// Categorization metadata for this study
 		var studyInstitution util.Institution
@@ -584,7 +582,7 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 			referringPhysician = util.GeneratePhysicianName(rng)
 			performingPhysician = util.GeneratePhysicianName(rng)
 			operatorName = util.GeneratePhysicianName(rng)
-			stationName = util.GenerateStationName("MR", bodyPart, rng)
+			stationName = util.GenerateStationName(modalityStr, bodyPart, rng)
 			accessionNumber = fmt.Sprintf("ACC%08d", rng.IntN(90000000)+10000000)
 		} else {
 			// Use defaults (same across all studies)
@@ -606,9 +604,9 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 		requestedProcedurePriority := getTagValue(opts.CustomTags, "RequestedProcedurePriority", opts.Priority.String())
 
 		// Generate series-level tags with custom overrides
-		protocolName := util.GenerateProtocolName("MR", bodyPart, rng)
-		clinicalIndication := util.GenerateClinicalIndication("MR", bodyPart, rng)
-		generatedSeriesDescription := fmt.Sprintf("Series 1 - %s", seriesSequenceName)
+		protocolName := util.GenerateProtocolName(modalityStr, bodyPart, rng)
+		clinicalIndication := util.GenerateClinicalIndication(modalityStr, bodyPart, rng)
+		generatedSeriesDescription := fmt.Sprintf("Series 1 - %s", modalityStr)
 
 		// Apply custom tag overrides for series-level tags
 		protocolName = getTagValue(opts.CustomTags, "ProtocolName", protocolName)
@@ -626,7 +624,7 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 			sliceIndex := float64(instanceInStudy - 1)
 			imagePositionX := -100.0
 			imagePositionY := -100.0
-			imagePositionZ := -100.0 + (sliceIndex * seriesSpacingBetweenSlices)
+			imagePositionZ := -100.0 + (sliceIndex * seriesParams.SpacingBetweenSlices)
 			imagePositionPatient := []string{
 				fmt.Sprintf("%.6f", imagePositionX),
 				fmt.Sprintf("%.6f", imagePositionY),
@@ -649,35 +647,29 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 				mustNewElement(tag.SeriesInstanceUID, []string{seriesUID}),
 				mustNewElement(tag.SeriesNumber, []string{fmt.Sprintf("%d", 1)}),
 				mustNewElement(tag.SeriesDescription, []string{seriesDescription}),
-				mustNewElement(tag.Modality, []string{"MR"}),
+				mustNewElement(tag.Modality, []string{modalityStr}),
 				mustNewElement(tag.SOPInstanceUID, []string{sopInstanceUID}),
-				mustNewElement(tag.SOPClassUID, []string{"1.2.840.10008.5.1.4.1.1.4"}),
+				mustNewElement(tag.SOPClassUID, []string{modalityGen.SOPClassUID()}),
 				mustNewElement(tag.InstanceNumber, []string{fmt.Sprintf("%d", instanceInStudy)}),
 				mustNewElement(tag.PixelSpacing, []string{
-					fmt.Sprintf("%.6f", seriesPixelSpacing),
-					fmt.Sprintf("%.6f", seriesPixelSpacing),
+					fmt.Sprintf("%.6f", seriesParams.PixelSpacing),
+					fmt.Sprintf("%.6f", seriesParams.PixelSpacing),
 				}),
-				mustNewElement(tag.SliceThickness, []string{fmt.Sprintf("%.6f", seriesSliceThickness)}),
-				mustNewElement(tag.SpacingBetweenSlices, []string{fmt.Sprintf("%.6f", seriesSpacingBetweenSlices)}),
-				mustNewElement(tag.EchoTime, []string{fmt.Sprintf("%.6f", seriesEchoTime)}),
-				mustNewElement(tag.RepetitionTime, []string{fmt.Sprintf("%.6f", seriesRepetitionTime)}),
-				mustNewElement(tag.FlipAngle, []string{fmt.Sprintf("%.6f", seriesFlipAngle)}),
-				mustNewElement(tag.MagneticFieldStrength, []string{fmt.Sprintf("%.1f", mfr.FieldStrength)}),
-				mustNewElement(tag.ImagingFrequency, []string{fmt.Sprintf("%.6f", imagingFrequency)}),
-				mustNewElement(tag.Manufacturer, []string{mfr.Name}),
-				mustNewElement(tag.ManufacturerModelName, []string{mfr.Model}),
-				mustNewElement(tag.SequenceName, []string{seriesSequenceName}),
-				mustNewElement(tag.WindowCenter, []string{fmt.Sprintf("%.1f", windowCenter)}),
-				mustNewElement(tag.WindowWidth, []string{fmt.Sprintf("%.1f", windowWidth)}),
+				mustNewElement(tag.SliceThickness, []string{fmt.Sprintf("%.6f", seriesParams.SliceThickness)}),
+				mustNewElement(tag.SpacingBetweenSlices, []string{fmt.Sprintf("%.6f", seriesParams.SpacingBetweenSlices)}),
+				mustNewElement(tag.Manufacturer, []string{scanner.Manufacturer}),
+				mustNewElement(tag.ManufacturerModelName, []string{scanner.Model}),
+				mustNewElement(tag.WindowCenter, []string{fmt.Sprintf("%.1f", seriesParams.WindowCenter)}),
+				mustNewElement(tag.WindowWidth, []string{fmt.Sprintf("%.1f", seriesParams.WindowWidth)}),
 				mustNewElement(tag.ImagePositionPatient, imagePositionPatient),
 				mustNewElement(tag.ImageOrientationPatient, imageOrientationPatient),
 				mustNewElement(tag.SliceLocation, []string{fmt.Sprintf("%.6f", sliceLocation)}),
 				mustNewElement(tag.Rows, []int{height}),
 				mustNewElement(tag.Columns, []int{width}),
-				mustNewElement(tag.BitsAllocated, []int{16}),
-				mustNewElement(tag.BitsStored, []int{16}),
-				mustNewElement(tag.HighBit, []int{15}),
-				mustNewElement(tag.PixelRepresentation, []int{0}),
+				mustNewElement(tag.BitsAllocated, []int{int(pixelConfig.BitsAllocated)}),
+				mustNewElement(tag.BitsStored, []int{int(pixelConfig.BitsStored)}),
+				mustNewElement(tag.HighBit, []int{int(pixelConfig.HighBit)}),
+				mustNewElement(tag.PixelRepresentation, []int{int(pixelConfig.PixelRepresentation)}),
 				mustNewElement(tag.SamplesPerPixel, []int{1}),
 				mustNewElement(tag.PhotometricInterpretation, []string{"MONOCHROME2"}),
 				// Categorization tags (with custom tag overrides applied)
@@ -693,6 +685,13 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 				mustNewElement(tag.RequestedProcedurePriority, []string{requestedProcedurePriority}),
 				mustNewElement(tag.AccessionNumber, []string{accessionNumber}),
 			}
+
+			// Add modality-specific elements
+			ds := &dicom.Dataset{Elements: metadata}
+			if err := modalityGen.AppendModalityElements(ds, seriesParams); err != nil {
+				return nil, fmt.Errorf("add modality elements for study %d, instance %d: %w", studyNum, instanceInStudy, err)
+			}
+			metadata = ds.Elements
 
 			// Generate deterministic pixel seed for this specific image
 			pixelSeedHash := fnv.New64a()
@@ -711,6 +710,7 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 				textOverlay:     fmt.Sprintf("File %d/%d", globalImageIndex, opts.NumImages),
 				pixelSeed:       pixelSeed,
 				metadata:        metadata,
+				pixelConfig:     pixelConfig,
 				studyUID:        studyUID,
 				seriesUID:       seriesUID,
 				sopInstanceUID:  sopInstanceUID,

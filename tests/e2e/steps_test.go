@@ -366,15 +366,30 @@ func getDICOMTagValue(file, tagName string) (string, error) {
 
 	// Parse dcmdump output to extract value
 	// Format: (0010,0010) PN [SMITH^JOHN]   # PatientName
+	// UI format: (0008,0016) UI =CTImageStorage  # SOPClassUID
 	output := stdout.String()
 	lines := strings.Split(output, "\n")
 	for _, line := range lines {
-		if strings.Contains(line, tagName) || strings.Contains(line, "[") {
-			// Extract value between [ and ]
+		if strings.Contains(line, tagName) || strings.Contains(line, "[") || strings.Contains(line, "=") {
+			// Extract value between [ and ] for most VRs
 			start := strings.Index(line, "[")
 			end := strings.LastIndex(line, "]")
 			if start != -1 && end > start {
 				return line[start+1 : end], nil
+			}
+
+			// Extract value after = for UI (UID) VR types
+			// Format: UI =CTImageStorage   # 26, 1 SOPClassUID
+			if strings.Contains(line, " UI =") {
+				parts := strings.SplitN(line, "=", 2)
+				if len(parts) == 2 {
+					// Extract the value up to whitespace or #
+					value := strings.TrimSpace(parts[1])
+					if idx := strings.IndexAny(value, " #"); idx != -1 {
+						value = value[:idx]
+					}
+					return value, nil
+				}
 			}
 		}
 	}

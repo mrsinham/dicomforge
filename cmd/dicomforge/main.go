@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strings"
 
 	"github.com/mrsinham/dicomforge/internal/dicom"
 	"github.com/mrsinham/dicomforge/internal/dicom/edgecases"
+	"github.com/mrsinham/dicomforge/internal/dicom/modalities"
 	"github.com/mrsinham/dicomforge/internal/util"
 )
 
@@ -23,6 +25,9 @@ func main() {
 	numStudies := flag.Int("num-studies", 1, "Number of studies to generate")
 	numPatients := flag.Int("num-patients", 1, "Number of patients (studies are distributed among patients)")
 	workers := flag.Int("workers", 0, fmt.Sprintf("Number of parallel workers (default: %d = CPU cores)", runtime.NumCPU()))
+
+	// Modality selection
+	modality := flag.String("modality", "MR", "Imaging modality: MR, CT (default: MR)")
 
 	// Categorization options
 	institution := flag.String("institution", "", "Institution name (random if not specified)")
@@ -95,6 +100,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Validate modality
+	modalityUpper := strings.ToUpper(*modality)
+	if !modalities.IsValid(modalityUpper) {
+		fmt.Fprintf(os.Stderr, "Error: invalid modality %q, valid options: %v\n", *modality, modalities.AllModalities())
+		os.Exit(1)
+	}
+
 	// Parse priority
 	parsedPriority, err := util.ParsePriority(*priority)
 	if err != nil {
@@ -142,6 +154,7 @@ func main() {
 		NumStudies:     *numStudies,
 		NumPatients:    *numPatients,
 		Workers:        *workers,
+		Modality:       modalities.Modality(modalityUpper),
 		Institution:    *institution,
 		Department:     *department,
 		BodyPart:       *bodyPart,
@@ -183,7 +196,7 @@ func printHelp() {
 	fmt.Println("dicomforge")
 	fmt.Println("==========")
 	fmt.Println()
-	fmt.Println("Generate valid DICOM multi-file MRI series for testing medical platforms.")
+	fmt.Println("Generate valid DICOM series for testing medical platforms.")
 	fmt.Println()
 	fmt.Println("Usage:")
 	fmt.Println("  dicomforge --num-images <N> --total-size <SIZE> [options]")
@@ -195,6 +208,7 @@ func printHelp() {
 	fmt.Println("Optional arguments:")
 	fmt.Println("  --output <DIR>        Output directory (default: 'dicom_series')")
 	fmt.Println("  --seed <N>            Seed for reproducibility (auto-generated if not specified)")
+	fmt.Println("  --modality <MOD>      Imaging modality: MR, CT (default: MR)")
 	fmt.Println("  --num-studies <N>     Number of studies to generate (default: 1)")
 	fmt.Println("  --num-patients <N>    Number of patients (default: 1, studies distributed among patients)")
 	fmt.Printf("  --workers <N>         Number of parallel workers (default: %d = CPU cores)\n", runtime.NumCPU())
@@ -218,8 +232,11 @@ func printHelp() {
 	fmt.Println("  --help                Show this help message")
 	fmt.Println()
 	fmt.Println("Examples:")
-	fmt.Println("  # Generate 10 images, 100MB total")
+	fmt.Println("  # Generate 10 MR images, 100MB total")
 	fmt.Println("  dicomforge --num-images 10 --total-size 100MB")
+	fmt.Println()
+	fmt.Println("  # Generate CT scan with 100 slices")
+	fmt.Println("  dicomforge --num-images 100 --total-size 200MB --modality CT")
 	fmt.Println()
 	fmt.Println("  # Generate 120 images, 4.5GB, with specific seed")
 	fmt.Println("  dicomforge --num-images 120 --total-size 4.5GB --seed 42")
@@ -237,7 +254,7 @@ func printHelp() {
 	fmt.Println("  The program creates a DICOM series with:")
 	fmt.Println("  - DICOMDIR index file")
 	fmt.Println("  - PT000000/ST000000/SE000000/ hierarchy (patient/study/series)")
-	fmt.Println("  - Realistic MRI metadata (manufacturer, scanner, parameters)")
+	fmt.Println("  - Realistic metadata (manufacturer, scanner, modality-specific parameters)")
 	fmt.Println("  - Realistic patient names (80% English, 20% French)")
 	fmt.Println("  - Text overlay showing 'File X/Y' on each image")
 	fmt.Println()

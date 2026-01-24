@@ -149,3 +149,37 @@ Feature: DICOM Generation
     When I run dicomforge with "--num-images 3 --total-size 200KB --num-patients 2 --output {tmpdir}"
     Then the exit code should be 1
     And the output should contain "num-studies"
+
+  # Modality options
+  Scenario: Generate CT series
+    Given dicomforge is built
+    When I run dicomforge with "--num-images 3 --total-size 200KB --modality CT --output {tmpdir}"
+    Then the exit code should be 0
+    And "{tmpdir}" should contain 3 DICOM files
+    And DICOM tag "Modality" in "{tmpdir}" should contain "CT"
+    And dcmdump should successfully parse all files in "{tmpdir}"
+
+  Scenario: Generate CT with correct SOP Class
+    Given dicomforge is built
+    When I run dicomforge with "--num-images 2 --total-size 200KB --modality CT --output {tmpdir}"
+    Then the exit code should be 0
+    And DICOM tag "SOPClassUID" in "{tmpdir}" should contain "CTImageStorage"
+
+  Scenario: Generate MR with correct SOP Class
+    Given dicomforge is built
+    When I run dicomforge with "--num-images 2 --total-size 200KB --modality MR --output {tmpdir}"
+    Then the exit code should be 0
+    And DICOM tag "SOPClassUID" in "{tmpdir}" should contain "MRImageStorage"
+
+  Scenario: Generate CT with Hounsfield unit tags
+    Given dicomforge is built
+    When I run dicomforge with "--num-images 2 --total-size 200KB --modality CT --output {tmpdir}"
+    Then the exit code should be 0
+    And DICOM tag "RescaleIntercept" in "{tmpdir}" should contain "-1024"
+    And DICOM tag "RescaleType" in "{tmpdir}" should contain "HU"
+
+  Scenario: Invalid modality value
+    Given dicomforge is built
+    When I run dicomforge with "--num-images 3 --total-size 200KB --modality INVALID --output {tmpdir}"
+    Then the exit code should be 1
+    And the output should contain "invalid modality"

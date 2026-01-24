@@ -1,9 +1,9 @@
-# DICOM MRI Generator
+# DICOM Generator (dicomforge)
 
 [![CI](https://github.com/mrsinham/dicomforge/actions/workflows/ci.yml/badge.svg)](https://github.com/mrsinham/dicomforge/actions/workflows/ci.yml)
 [![Release](https://github.com/mrsinham/dicomforge/actions/workflows/release.yml/badge.svg)](https://github.com/mrsinham/dicomforge/actions/workflows/release.yml)
 
-A CLI tool to generate valid DICOM MRI series for testing medical imaging platforms.
+A CLI tool to generate valid DICOM series for testing medical imaging platforms. Supports MR (Magnetic Resonance) and CT (Computed Tomography) modalities.
 
 **Generates multiple DICOM files** (one per image) in a directory, using the standard format expected by medical platforms and PACS systems.
 
@@ -66,11 +66,14 @@ go build -o dicomforge ./cmd/dicomforge/
 ## Quick Start
 
 ```bash
-# Generate 10 DICOM images totaling 100MB
+# Generate 10 MR DICOM images totaling 100MB
 ./dicomforge --num-images 10 --total-size 100MB
 
 # Generate a full MRI series (120 slices, 1GB)
 ./dicomforge --num-images 120 --total-size 1GB --output mri_series
+
+# Generate a CT series (100 slices)
+./dicomforge --num-images 100 --total-size 200MB --modality CT --output ct_series
 ```
 
 ## Usage
@@ -92,12 +95,24 @@ go build -o dicomforge ./cmd/dicomforge/
 |----------|-------------|---------|
 | `--output` | Output directory name | `dicom_series` |
 | `--seed` | Random seed for reproducibility | auto-generated |
+| `--modality` | Imaging modality: `MR` or `CT` | `MR` |
 | `--num-studies` | Number of studies to generate | `1` |
 | `--num-patients` | Number of patients (studies distributed among them) | `1` |
 | `--workers` | Number of parallel workers | CPU core count |
 | `--edge-cases` | Percentage of patients with edge case variations (0-100) | `0` |
 | `--edge-case-types` | Comma-separated edge case types to enable | all types |
 | `--help` | Show help message | - |
+
+### Modality Support
+
+| Modality | Description | SOP Class |
+|----------|-------------|-----------|
+| `MR` | Magnetic Resonance Imaging | MR Image Storage |
+| `CT` | Computed Tomography | CT Image Storage |
+
+**MR-specific features:** Realistic parameters (EchoTime, RepetitionTime, FlipAngle), scanner models from Siemens, GE, and Philips (1.5T and 3.0T).
+
+**CT-specific features:** Hounsfield units (RescaleIntercept=-1024), KVP, XRayTubeCurrent, ConvolutionKernel, scanner models with detector rows (64-320 rows).
 
 ### Edge Case Types
 
@@ -114,8 +129,11 @@ When using `--edge-cases`, you can specify which types to enable with `--edge-ca
 ### Examples
 
 ```bash
-# Basic usage: 120 images, 1GB total
+# Basic usage: 120 MR images, 1GB total
 ./dicomforge --num-images 120 --total-size 1GB
+
+# Generate CT scan (100 slices)
+./dicomforge --num-images 100 --total-size 200MB --modality CT
 
 # Custom output directory with fixed seed for reproducibility
 ./dicomforge --num-images 50 --total-size 500MB --output patient_001 --seed 42
@@ -125,6 +143,9 @@ When using `--edge-cases`, you can specify which types to enable with `--edge-ca
 
 # Generate multiple patients with studies distributed among them
 ./dicomforge --num-images 60 --total-size 1GB --num-studies 6 --num-patients 2
+
+# CT with specific body part
+./dicomforge --num-images 100 --total-size 300MB --modality CT --body-part CHEST
 
 # Limit parallelism (useful on resource-constrained systems)
 ./dicomforge --num-images 100 --total-size 1GB --workers 4
@@ -163,11 +184,12 @@ This hierarchy follows the DICOM standard and is compatible with:
 ## Features
 
 - **Standard DICOM format**: Generates valid DICOM files readable by any compliant software
+- **Multiple modalities**: Supports MR and CT with modality-specific parameters
 - **DICOMDIR support**: Automatic directory index file creation
 - **PT/ST/SE hierarchy**: Standard patient/study/series folder structure
 - **Visual overlay**: Each image shows "File X/Y" text for easy verification
 - **Parallel generation**: Worker pool for fast generation (~4.5x speedup)
-- **Realistic metadata**: Simulated MRI parameters from major vendors (Siemens, GE, Philips)
+- **Realistic metadata**: Simulated parameters from major vendors (Siemens, GE, Philips, Canon)
 - **Realistic patient names**: Generated patient names (80% English, 20% French)
 - **Edge case generation**: Special characters, long names, old dates, varied IDs for robustness testing
 - **Reproducible output**: Same seed produces identical files
@@ -215,12 +237,15 @@ go test -v ./...
 
 ```
 .
-├── cmd/dicomforge/    # CLI entry point
+├── cmd/dicomforge/            # CLI entry point
 ├── internal/
 │   ├── dicom/                 # DICOM generation and DICOMDIR
+│   │   ├── edgecases/         # Edge case generation
+│   │   └── modalities/        # Modality-specific generators (MR, CT)
 │   ├── image/                 # Pixel data generation
 │   └── util/                  # Utilities (UID generation, size parsing)
 ├── tests/                     # Integration tests
+│   └── e2e/                   # End-to-end tests (Gherkin/Cucumber)
 ├── scripts/                   # Validation scripts
 ├── python/                    # Legacy Python version
 │   ├── generate_dicom_mri.py
