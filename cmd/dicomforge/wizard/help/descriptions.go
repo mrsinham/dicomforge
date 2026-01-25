@@ -142,4 +142,15 @@ CORONAL - Front view slices (front to back)`,
 		Description: "Override or add DICOM tag values.",
 		Details:     "Format: TagName=Value (e.g., InstitutionName=CHU Bordeaux)",
 	},
+	"accept_defaults": {
+		Title:       "ACCEPT DEFAULTS",
+		Description: "Skip individual study configuration for this patient.",
+		Details:     "If checked, all studies for this patient will use default values automatically.",
+	},
+	"bulk_choice": {
+		Title:       "BULK PATIENT CONFIGURATION",
+		Description: "Choose how to handle remaining patients.",
+		Details: `Generate automatically: Random names/IDs based on patient index
+Configure each one: Step through each patient's configuration screen`,
+	},
 }
