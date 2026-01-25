@@ -23,6 +23,7 @@ func main() {
 	outputDir := flag.String("output", "dicom_series", "Output directory")
 	seed := flag.Int64("seed", 0, "Seed for reproducibility (optional, auto-generated if not specified)")
 	numStudies := flag.Int("num-studies", 1, "Number of studies to generate")
+	studyDescriptions := flag.String("study-descriptions", "", "Comma-separated study descriptions (must match --num-studies count)")
 	numPatients := flag.Int("num-patients", 1, "Number of patients (studies are distributed among patients)")
 	workers := flag.Int("workers", 0, fmt.Sprintf("Number of parallel workers (default: %d = CPU cores)", runtime.NumCPU()))
 
@@ -110,6 +111,21 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Parse and validate study descriptions
+	var parsedStudyDescriptions []string
+	if *studyDescriptions != "" {
+		parsedStudyDescriptions = strings.Split(*studyDescriptions, ",")
+		// Trim whitespace from each description
+		for i := range parsedStudyDescriptions {
+			parsedStudyDescriptions[i] = strings.TrimSpace(parsedStudyDescriptions[i])
+		}
+		if len(parsedStudyDescriptions) != *numStudies {
+			fmt.Fprintf(os.Stderr, "Error: --study-descriptions has %d descriptions but --num-studies is %d (must match)\n",
+				len(parsedStudyDescriptions), *numStudies)
+			os.Exit(1)
+		}
+	}
+
 	// Parse priority
 	parsedPriority, err := util.ParsePriority(*priority)
 	if err != nil {
@@ -157,22 +173,23 @@ func main() {
 
 	// Create generator options
 	opts := dicom.GeneratorOptions{
-		NumImages:      *numImages,
-		TotalSize:      *totalSize,
-		OutputDir:      *outputDir,
-		Seed:           *seed,
-		NumStudies:     *numStudies,
-		NumPatients:    *numPatients,
-		Workers:        *workers,
-		Modality:       modalities.Modality(modalityUpper),
-		SeriesPerStudy: parsedSeriesPerStudy,
-		Institution:    *institution,
-		Department:     *department,
-		BodyPart:       *bodyPart,
-		Priority:       parsedPriority,
-		VariedMetadata: *variedMetadata,
-		CustomTags:     parsedTags,
-		EdgeCaseConfig: edgeCaseConfig,
+		NumImages:         *numImages,
+		TotalSize:         *totalSize,
+		OutputDir:         *outputDir,
+		Seed:              *seed,
+		NumStudies:        *numStudies,
+		NumPatients:       *numPatients,
+		Workers:           *workers,
+		Modality:          modalities.Modality(modalityUpper),
+		SeriesPerStudy:    parsedSeriesPerStudy,
+		StudyDescriptions: parsedStudyDescriptions,
+		Institution:       *institution,
+		Department:        *department,
+		BodyPart:          *bodyPart,
+		Priority:          parsedPriority,
+		VariedMetadata:    *variedMetadata,
+		CustomTags:        parsedTags,
+		EdgeCaseConfig:    edgeCaseConfig,
 	}
 
 	// Generate DICOM series
@@ -221,6 +238,9 @@ func printHelp() {
 	fmt.Println("  --seed <N>            Seed for reproducibility (auto-generated if not specified)")
 	fmt.Println("  --modality <MOD>      Imaging modality: MR, CT, CR, DX, US, MG (default: MR)")
 	fmt.Println("  --num-studies <N>     Number of studies to generate (default: 1)")
+	fmt.Println("  --study-descriptions <LIST>")
+	fmt.Println("                        Comma-separated study descriptions (must match --num-studies)")
+	fmt.Println("                        Example: \"IRM T0,IRM M3,IRM M6\" for 3 studies")
 	fmt.Println("  --num-patients <N>    Number of patients (default: 1, studies distributed among patients)")
 	fmt.Println("  --series-per-study <N|MIN-MAX>")
 	fmt.Println("                        Series per study: '3' for fixed, '2-5' for random range (default: 1)")

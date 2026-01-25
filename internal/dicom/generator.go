@@ -269,7 +269,8 @@ type GeneratorOptions struct {
 	Modality modalities.Modality // Imaging modality (MR, CT, etc.)
 
 	// Multi-series support
-	SeriesPerStudy util.SeriesRange // Number of series per study (default: 1)
+	SeriesPerStudy    util.SeriesRange // Number of series per study (default: 1)
+	StudyDescriptions []string         // Custom study descriptions (one per study, or empty for auto-generate)
 
 	// Categorization options
 	Institution    string        // Fixed institution name (empty = random)
@@ -684,14 +685,21 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 
 		// Generate study-specific info
 		studyID := fmt.Sprintf("STD%04d", rng.IntN(9000)+1000)
-		var generatedStudyDescription string
-		baseDescription := fmt.Sprintf("%s %s", bodyPart, modalityStr) // e.g., "HEAD CT" or "BRAIN MR"
-		if opts.NumStudies > 1 {
-			generatedStudyDescription = fmt.Sprintf("%s - Study %d", baseDescription, studyNum)
+		var studyDescription string
+		if len(opts.StudyDescriptions) > 0 && studyNum-1 < len(opts.StudyDescriptions) {
+			// Use custom study description if provided
+			studyDescription = opts.StudyDescriptions[studyNum-1]
 		} else {
-			generatedStudyDescription = baseDescription
+			// Auto-generate study description
+			baseDescription := fmt.Sprintf("%s %s", bodyPart, modalityStr) // e.g., "HEAD CT" or "BRAIN MR"
+			if opts.NumStudies > 1 {
+				studyDescription = fmt.Sprintf("%s - Study %d", baseDescription, studyNum)
+			} else {
+				studyDescription = baseDescription
+			}
+			// Allow custom tag override for auto-generated descriptions
+			studyDescription = getTagValue(opts.CustomTags, "StudyDescription", studyDescription)
 		}
-		studyDescription := getTagValue(opts.CustomTags, "StudyDescription", generatedStudyDescription)
 
 		// Generate study date and time
 		studyDate := fmt.Sprintf("%04d%02d%02d",
