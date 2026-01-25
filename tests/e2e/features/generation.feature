@@ -292,7 +292,9 @@ Feature: DICOM Generation
     When I run dicomforge with "--num-images 6 --total-size 400KB --num-studies 3 --study-descriptions IRM_T0,IRM_M3,IRM_M6 --output {tmpdir}"
     Then the exit code should be 0
     And "{tmpdir}" should contain 6 DICOM files
-    And DICOM tag "StudyDescription" in "{tmpdir}" should contain "IRM_"
+    And DICOM tag "StudyDescription" in "{tmpdir}" should have value "IRM_T0" in some file
+    And DICOM tag "StudyDescription" in "{tmpdir}" should have value "IRM_M3" in some file
+    And DICOM tag "StudyDescription" in "{tmpdir}" should have value "IRM_M6" in some file
 
   Scenario: Study descriptions count mismatch
     Given dicomforge is built

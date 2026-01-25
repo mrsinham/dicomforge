@@ -111,6 +111,7 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^"([^"]*)" should contain (\d+) study directories$`, tc.shouldContainStudyDirs)
 	sc.Step(`^"([^"]*)" should contain (\d+) patient directories$`, tc.shouldContainPatientDirs)
 	sc.Step(`^"([^"]*)" should contain (\d+) series directories$`, tc.shouldContainSeriesDirs)
+	sc.Step(`^DICOM tag "([^"]*)" in "([^"]*)" should have value "([^"]*)" in some file$`, tc.dicomTagShouldExistInAnyFile)
 }
 
 func (tc *testContext) dicomforgeIsBuilt() error {
@@ -372,6 +373,44 @@ func (tc *testContext) shouldContainSeriesDirs(path string, count int) error {
 		return fmt.Errorf("expected %d series directories, found %d", count, seriesCount)
 	}
 	return nil
+}
+
+func (tc *testContext) dicomTagShouldExistInAnyFile(tagName, path, expected string) error {
+	path = strings.ReplaceAll(path, "{tmpdir}", tc.tmpDir)
+
+	files, err := findDICOMFiles(path)
+	if err != nil {
+		return fmt.Errorf("failed to find DICOM files: %w", err)
+	}
+
+	if len(files) == 0 {
+		return fmt.Errorf("no DICOM files found in %s", path)
+	}
+
+	// Check all files for the expected tag value
+	var foundValues []string
+	for _, file := range files {
+		value, err := getDICOMTagValue(file, tagName)
+		if err != nil {
+			continue // Skip files that don't have the tag
+		}
+		if value == expected {
+			return nil // Found exact match
+		}
+		foundValues = append(foundValues, value)
+	}
+
+	// Deduplicate found values for better error message
+	uniqueValues := make(map[string]bool)
+	for _, v := range foundValues {
+		uniqueValues[v] = true
+	}
+	var unique []string
+	for v := range uniqueValues {
+		unique = append(unique, v)
+	}
+
+	return fmt.Errorf("DICOM tag %s value %q not found in any file, found values: %v", tagName, expected, unique)
 }
 
 // getDICOMTagValue uses dcmdump to extract a tag value from a DICOM file
