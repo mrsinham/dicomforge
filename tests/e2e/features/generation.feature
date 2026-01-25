@@ -285,3 +285,17 @@ Feature: DICOM Generation
     When I run dicomforge with "--num-images 6 --total-size 400KB --series-per-study 5-2 --output {tmpdir}"
     Then the exit code should be 1
     And the output should contain "max"
+
+  # Custom study descriptions
+  Scenario: Generate with custom study descriptions
+    Given dicomforge is built
+    When I run dicomforge with "--num-images 6 --total-size 400KB --num-studies 3 --study-descriptions IRM_T0,IRM_M3,IRM_M6 --output {tmpdir}"
+    Then the exit code should be 0
+    And "{tmpdir}" should contain 6 DICOM files
+    And DICOM tag "StudyDescription" in "{tmpdir}" should contain "IRM_"
+
+  Scenario: Study descriptions count mismatch
+    Given dicomforge is built
+    When I run dicomforge with "--num-images 6 --total-size 400KB --num-studies 3 --study-descriptions IRM_T0,IRM_M3 --output {tmpdir}"
+    Then the exit code should be 1
+    And the output should contain "must match"
