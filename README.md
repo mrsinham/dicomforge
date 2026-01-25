@@ -85,6 +85,8 @@ go build -o dicomforge ./cmd/dicomforge/
 ./dicomforge --num-images 4 --total-size 100MB --modality MG
 ```
 
+> **[See Complete Examples Guide](docs/EXAMPLES.md)** - Detailed examples for all features: multi-series, custom tags, edge cases, clinical trial simulations, and more.
+
 ## Usage
 
 ```bash
