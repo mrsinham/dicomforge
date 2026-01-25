@@ -769,9 +769,14 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 			numSeriesThisStudy = 1
 		}
 
+		// Generate base modality-specific parameters for this study (shared across all series)
+		baseSeriesParams := modalityGen.GenerateSeriesParams(scanner, rng)
+
 		fmt.Printf("\nStudy %d/%d: %d images in %d series (Patient: %s)\n", studyNum, opts.NumStudies, numImagesThisStudy, numSeriesThisStudy, patient.Name)
 		fmt.Printf("  StudyID: %s, Description: %s\n", studyID, studyDescription)
 		fmt.Printf("  Modality: %s, Scanner: %s %s\n", modalityStr, scanner.Manufacturer, scanner.Model)
+		fmt.Printf("  Resolution: PixelSpacing=%.2fmm, SliceThickness=%.2fmm\n",
+			baseSeriesParams.PixelSpacing, baseSeriesParams.SliceThickness)
 
 		// Distribute images across series
 		imagesPerSeries := numImagesThisStudy / numSeriesThisStudy
@@ -796,8 +801,8 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 				}
 			}
 
-			// Generate modality-specific series parameters
-			seriesParams := modalityGen.GenerateSeriesParams(scanner, rng)
+			// Copy base parameters and apply series-specific overrides
+			seriesParams := baseSeriesParams
 
 			// Apply series template window settings if specified
 			if seriesTemplate.WindowCenter != 0 {
