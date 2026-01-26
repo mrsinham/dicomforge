@@ -216,12 +216,6 @@ var (
 				Foreground(lipgloss.Color("252")).
 				Padding(0, 1)
 
-	completionButtonStyle = lipgloss.NewStyle().
-				Background(lipgloss.Color("63")).
-				Foreground(lipgloss.Color("255")).
-				Padding(0, 2).
-				Bold(true)
-
 	completionButtonFocusedStyle = lipgloss.NewStyle().
 					Background(lipgloss.Color("33")).
 					Foreground(lipgloss.Color("255")).
