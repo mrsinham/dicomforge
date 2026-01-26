@@ -823,7 +823,7 @@ func (w *Wizard) startGeneration() (tea.Model, tea.Cmd) {
 
 		// Calculate total size from organized files
 		var totalSize int64
-		filepath.Walk(opts.OutputDir, func(path string, info os.FileInfo, err error) error {
+		_ = filepath.Walk(opts.OutputDir, func(path string, info os.FileInfo, err error) error {
 			if err == nil && !info.IsDir() {
 				totalSize += info.Size()
 			}
@@ -943,7 +943,7 @@ func (w *Wizard) updateProgress(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var fileCount int
 			var totalSize int64
 			var durationStr string
-			fmt.Sscanf(msg.Path, "%d|%d|%s", &fileCount, &totalSize, &durationStr)
+			_, _ = fmt.Sscanf(msg.Path, "%d|%d|%s", &fileCount, &totalSize, &durationStr)
 			duration, _ := time.ParseDuration(durationStr)
 
 			w.phase = PhaseComplete
