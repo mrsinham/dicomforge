@@ -77,6 +77,9 @@ type Wizard struct {
 	cancelled bool
 	finished  bool
 	err       error
+
+	// Progress channel for generation updates
+	progressChan chan screens.ProgressMsg
 }
 
 // NewWizard creates a new wizard with default or loaded state.
@@ -784,23 +787,38 @@ func (w *Wizard) startGeneration() (tea.Model, tea.Cmd) {
 	w.phase = PhaseProgress
 	w.progressScreen = screens.NewProgressScreen(w.state.Global.TotalImages)
 
-	// Start generation in a goroutine and send progress updates
-	return w, func() tea.Msg {
+	// Create channel for progress updates
+	w.progressChan = make(chan screens.ProgressMsg, 100)
+
+	// Start generation in a goroutine
+	go func() {
 		startTime := time.Now()
 
 		opts, err := w.toGeneratorOptions()
 		if err != nil {
-			return screens.ErrorMsg{Error: err}
+			w.progressChan <- screens.ProgressMsg{Current: -1, Total: -1, Path: err.Error()}
+			return
+		}
+
+		// Set progress callback
+		opts.ProgressCallback = func(current, total int) {
+			select {
+			case w.progressChan <- screens.ProgressMsg{Current: current, Total: total}:
+			default:
+				// Channel full, skip this update
+			}
 		}
 
 		files, err := dicom.GenerateDICOMSeries(opts)
 		if err != nil {
-			return screens.ErrorMsg{Error: err}
+			w.progressChan <- screens.ProgressMsg{Current: -2, Total: -2, Path: err.Error()}
+			return
 		}
 
 		// Organize into DICOMDIR structure (PT/ST/SE hierarchy)
 		if err := dicom.OrganizeFilesIntoDICOMDIR(opts.OutputDir, files, true); err != nil {
-			return screens.ErrorMsg{Error: fmt.Errorf("creating DICOMDIR: %w", err)}
+			w.progressChan <- screens.ProgressMsg{Current: -2, Total: -2, Path: fmt.Sprintf("creating DICOMDIR: %v", err)}
+			return
 		}
 
 		// Calculate total size from organized files
@@ -812,12 +830,23 @@ func (w *Wizard) startGeneration() (tea.Model, tea.Cmd) {
 			return nil
 		})
 
-		return screens.CompletionMsg{
-			TotalFiles: len(files),
-			TotalSize:  totalSize,
-			Duration:   time.Since(startTime),
-			OutputDir:  opts.OutputDir,
+		// Send completion signal (Current = -3 means done)
+		w.progressChan <- screens.ProgressMsg{
+			Current: -3,
+			Total:   len(files),
+			Path:    fmt.Sprintf("%d|%d|%s", len(files), totalSize, time.Since(startTime).String()),
 		}
+	}()
+
+	// Return command that listens for progress
+	return w, w.waitForProgress()
+}
+
+// waitForProgress returns a command that waits for the next progress update
+func (w *Wizard) waitForProgress() tea.Cmd {
+	return func() tea.Msg {
+		msg := <-w.progressChan
+		return msg
 	}
 }
 
@@ -897,8 +926,40 @@ func (w *Wizard) toGeneratorOptions() (dicom.GeneratorOptions, error) {
 func (w *Wizard) updateProgress(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case screens.ProgressMsg:
-		w.progressScreen.SetProgress(msg.Current, msg.Total, msg.Path)
-		return w, nil
+		// Check for special signals encoded in Current
+		switch msg.Current {
+		case -1: // Options error
+			w.phase = PhaseError
+			w.err = fmt.Errorf("%s", msg.Path)
+			w.errorScreen = screens.NewErrorScreen(w.err)
+			return w, nil
+		case -2: // Generation error
+			w.phase = PhaseError
+			w.err = fmt.Errorf("%s", msg.Path)
+			w.errorScreen = screens.NewErrorScreen(w.err)
+			return w, nil
+		case -3: // Completion
+			// Parse completion data from Path: "fileCount|totalSize|duration"
+			var fileCount int
+			var totalSize int64
+			var durationStr string
+			fmt.Sscanf(msg.Path, "%d|%d|%s", &fileCount, &totalSize, &durationStr)
+			duration, _ := time.ParseDuration(durationStr)
+
+			w.phase = PhaseComplete
+			w.completionScreen = screens.NewCompletionScreen(screens.CompletionMsg{
+				TotalFiles: fileCount,
+				TotalSize:  totalSize,
+				Duration:   duration,
+				OutputDir:  w.state.Global.OutputDir,
+			})
+			return w, nil
+		default:
+			// Normal progress update
+			w.progressScreen.SetProgress(msg.Current, msg.Total, msg.Path)
+			// Continue waiting for more progress
+			return w, w.waitForProgress()
+		}
 
 	case screens.CompletionMsg:
 		w.phase = PhaseComplete

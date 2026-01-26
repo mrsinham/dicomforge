@@ -286,7 +286,8 @@ type GeneratorOptions struct {
 	EdgeCaseConfig edgecases.Config // Edge case generation config
 
 	// Output control
-	Quiet bool // Suppress progress output (for TUI integration)
+	Quiet            bool                    // Suppress progress output (for TUI integration)
+	ProgressCallback func(current, total int) // Optional callback for progress updates
 }
 
 // getTagValue returns the custom tag value if set, otherwise returns the generated value.
@@ -1035,6 +1036,10 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 			firstErr = fmt.Errorf("generate image %d: %w", result.index, result.err)
 		}
 		completed++
+		// Call progress callback if provided
+		if opts.ProgressCallback != nil {
+			opts.ProgressCallback(completed, len(tasks))
+		}
 		if !opts.Quiet && (completed%10 == 0 || completed == len(tasks)) {
 			progress := float64(completed) / float64(len(tasks)) * 100
 			fmt.Printf("  Progress: %d/%d (%.0f%%)\n", completed, len(tasks), progress)
