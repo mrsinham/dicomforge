@@ -1,0 +1,23 @@
+global:
+  modality: MR
+  total_images: 90
+  total_size: 1GB
+  output: ./clinical_trial
+  seed: 2026
+
+patients:
+  - name: PATIENT^001
+    id: TRIAL-001
+    studies:
+      - description: BASELINE
+        date: 2026-01-01
+      - description: WEEK_4
+        date: 2026-01-29
+      - description: WEEK_12
+        date: 2026-03-26
+  - name: PATIENT^002
+    id: TRIAL-002
+    studies:
+      - description: BASELINE
+      - description: WEEK_4
+      - description: WEEK_12
