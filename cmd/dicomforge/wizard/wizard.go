@@ -799,7 +799,7 @@ func (w *Wizard) startGeneration() (tea.Model, tea.Cmd) {
 		}
 
 		// Organize into DICOMDIR structure (PT/ST/SE hierarchy)
-		if err := dicom.OrganizeFilesIntoDICOMDIR(opts.OutputDir, files); err != nil {
+		if err := dicom.OrganizeFilesIntoDICOMDIR(opts.OutputDir, files, true); err != nil {
 			return screens.ErrorMsg{Error: fmt.Errorf("creating DICOMDIR: %w", err)}
 		}
 

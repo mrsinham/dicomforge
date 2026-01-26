@@ -81,7 +81,7 @@ func TestOrganizeFiles_DICOMDIRStructure(t *testing.T) {
 	t.Logf("Generated %d files, organizing into DICOMDIR...", len(files))
 
 	// Organize into DICOMDIR structure
-	err = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir, files)
+	err = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir, files, false)
 	if err != nil {
 		t.Fatalf("OrganizeFilesIntoDICOMDIR failed: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestValidation_RequiredTags(t *testing.T) {
 		t.Fatalf("GenerateDICOMSeries failed: %v", err)
 	}
 
-	err = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir, files)
+	err = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir, files, false)
 	if err != nil {
 		t.Fatalf("OrganizeFilesIntoDICOMDIR failed: %v", err)
 	}
@@ -251,7 +251,7 @@ func TestMultiStudy(t *testing.T) {
 		t.Fatalf("GenerateDICOMSeries failed: %v", err)
 	}
 
-	err = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir, files)
+	err = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir, files, false)
 	if err != nil {
 		t.Fatalf("OrganizeFilesIntoDICOMDIR failed: %v", err)
 	}

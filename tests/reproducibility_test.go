@@ -186,7 +186,7 @@ func TestReproducibility_PatientNames(t *testing.T) {
 		t.Fatalf("GenerateDICOMSeries failed: %v", err)
 	}
 
-	err = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir, files)
+	err = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir, files, false)
 	if err != nil {
 		t.Fatalf("OrganizeFilesIntoDICOMDIR failed: %v", err)
 	}
@@ -243,7 +243,7 @@ func TestReproducibility_PixelData(t *testing.T) {
 		t.Fatalf("First generation failed: %v", err)
 	}
 
-	_ = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir1, nil)
+	_ = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir1, nil, false)
 	// This will fail because we didn't pass files, but that's OK for this test
 	// We'll just check files were created
 

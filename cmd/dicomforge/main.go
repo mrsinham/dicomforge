@@ -255,7 +255,7 @@ func main() {
 	}
 
 	// Organize into DICOMDIR structure
-	if err := dicom.OrganizeFilesIntoDICOMDIR(*outputDir, generatedFiles); err != nil {
+	if err := dicom.OrganizeFilesIntoDICOMDIR(*outputDir, generatedFiles, false); err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating DICOMDIR: %v\n", err)
 		os.Exit(1)
 	}

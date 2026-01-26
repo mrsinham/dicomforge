@@ -30,7 +30,7 @@ func TestValidation_MRIParameters(t *testing.T) {
 		t.Fatalf("GenerateDICOMSeries failed: %v", err)
 	}
 
-	err = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir, files)
+	err = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir, files, false)
 	if err != nil {
 		t.Fatalf("OrganizeFilesIntoDICOMDIR failed: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestValidation_PixelData(t *testing.T) {
 		t.Fatalf("GenerateDICOMSeries failed: %v", err)
 	}
 
-	err = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir, files)
+	err = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir, files, false)
 	if err != nil {
 		t.Fatalf("OrganizeFilesIntoDICOMDIR failed: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestValidation_ImagePosition(t *testing.T) {
 		t.Fatalf("GenerateDICOMSeries failed: %v", err)
 	}
 
-	err = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir, files)
+	err = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir, files, false)
 	if err != nil {
 		t.Fatalf("OrganizeFilesIntoDICOMDIR failed: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestValidation_PatientInfo(t *testing.T) {
 		t.Fatalf("GenerateDICOMSeries failed: %v", err)
 	}
 
-	err = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir, files)
+	err = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir, files, false)
 	if err != nil {
 		t.Fatalf("OrganizeFilesIntoDICOMDIR failed: %v", err)
 	}
@@ -343,7 +343,7 @@ func TestValidation_UIDUniqueness(t *testing.T) {
 		t.Fatalf("GenerateDICOMSeries failed: %v", err)
 	}
 
-	err = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir, files)
+	err = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir, files, false)
 	if err != nil {
 		t.Fatalf("OrganizeFilesIntoDICOMDIR failed: %v", err)
 	}
