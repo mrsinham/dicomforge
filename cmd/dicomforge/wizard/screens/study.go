@@ -8,8 +8,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/mrsinham/dicomforge/cmd/dicomforge/wizard"
 	"github.com/mrsinham/dicomforge/cmd/dicomforge/wizard/components"
+	"github.com/mrsinham/dicomforge/cmd/dicomforge/wizard/types"
 )
 
 const (
@@ -21,7 +21,7 @@ const (
 type StudyScreen struct {
 	form           *huh.Form
 	helpPanel      *components.HelpPanel
-	study          *wizard.StudyConfig
+	study          *types.StudyConfig
 	studyIndex     int    // 0-based index
 	totalStudies   int    // total number of studies
 	patientName    string // patient name for display
@@ -34,7 +34,7 @@ type StudyScreen struct {
 }
 
 // NewStudyScreen creates a new study configuration screen
-func NewStudyScreen(study *wizard.StudyConfig, index, total int, patientName, modality string) *StudyScreen {
+func NewStudyScreen(study *types.StudyConfig, index, total int, patientName, modality string) *StudyScreen {
 	// Set defaults if not provided
 	if study.Description == "" {
 		study.Description = generateDefaultStudyDescription(modality, study.BodyPart)
@@ -282,7 +282,7 @@ func (s *StudyScreen) Done() bool { return s.done }
 func (s *StudyScreen) Cancelled() bool { return s.cancelled }
 
 // Study returns the configured study
-func (s *StudyScreen) Study() *wizard.StudyConfig { return s.study }
+func (s *StudyScreen) Study() *types.StudyConfig { return s.study }
 
 // AcceptDefaults returns true if the user chose to accept defaults for series
 func (s *StudyScreen) AcceptDefaults() bool { return s.acceptDefaults }

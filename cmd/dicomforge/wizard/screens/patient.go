@@ -7,15 +7,15 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/mrsinham/dicomforge/cmd/dicomforge/wizard"
 	"github.com/mrsinham/dicomforge/cmd/dicomforge/wizard/components"
+	"github.com/mrsinham/dicomforge/cmd/dicomforge/wizard/types"
 )
 
 // PatientScreen configures a single patient
 type PatientScreen struct {
 	form           *huh.Form
 	helpPanel      *components.HelpPanel
-	patient        *wizard.PatientConfig
+	patient        *types.PatientConfig
 	patientIndex   int  // 0-based index
 	totalPatients  int  // total number of patients
 	acceptDefaults bool // Accept defaults for studies
@@ -26,7 +26,7 @@ type PatientScreen struct {
 }
 
 // NewPatientScreen creates a new patient configuration screen
-func NewPatientScreen(patient *wizard.PatientConfig, index, total int) *PatientScreen {
+func NewPatientScreen(patient *types.PatientConfig, index, total int) *PatientScreen {
 	// Set defaults if not provided
 	if patient.Name == "" {
 		patient.Name = generateDefaultPatientName(index)
@@ -192,7 +192,7 @@ func (s *PatientScreen) Done() bool { return s.done }
 func (s *PatientScreen) Cancelled() bool { return s.cancelled }
 
 // Patient returns the configured patient
-func (s *PatientScreen) Patient() *wizard.PatientConfig { return s.patient }
+func (s *PatientScreen) Patient() *types.PatientConfig { return s.patient }
 
 // AcceptDefaults returns true if the user chose to accept defaults for studies
 func (s *PatientScreen) AcceptDefaults() bool { return s.acceptDefaults }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/mrsinham/dicomforge/cmd/dicomforge/wizard/types"
 	"gopkg.in/yaml.v3"
 )
 
@@ -25,12 +26,12 @@ func LoadFromYAML(path string) (*WizardState, error) {
 		return nil, fmt.Errorf("parsing YAML: %w", err)
 	}
 
-	return cfg.ToWizardState(), nil
+	return configToWizardState(&cfg), nil
 }
 
 // SaveToYAML writes WizardState to a YAML file.
 func SaveToYAML(state *WizardState, path string) error {
-	cfg := state.ToConfig()
+	cfg := wizardStateToConfig(state)
 
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
@@ -44,10 +45,10 @@ func SaveToYAML(state *WizardState, path string) error {
 	return nil
 }
 
-// ToWizardState converts Config (YAML) to WizardState (runtime).
-func (c *Config) ToWizardState() *WizardState {
+// configToWizardState converts Config (YAML) to WizardState (runtime).
+func configToWizardState(c *Config) *WizardState {
 	state := &WizardState{
-		Global: GlobalConfig{
+		Global: types.GlobalConfig{
 			Modality:          c.Global.Modality,
 			TotalImages:       c.Global.TotalImages,
 			TotalSize:         c.Global.TotalSize,
@@ -57,20 +58,20 @@ func (c *Config) ToWizardState() *WizardState {
 			StudiesPerPatient: c.Global.StudiesPerPatient,
 			SeriesPerStudy:    c.Global.SeriesPerStudy,
 		},
-		Patients: make([]PatientConfig, len(c.Patients)),
+		Patients: make([]types.PatientConfig, len(c.Patients)),
 	}
 
 	for i, p := range c.Patients {
-		patient := PatientConfig{
+		patient := types.PatientConfig{
 			Name:      p.Name,
 			ID:        p.ID,
 			BirthDate: p.BirthDate,
 			Sex:       p.Sex,
-			Studies:   make([]StudyConfig, len(p.Studies)),
+			Studies:   make([]types.StudyConfig, len(p.Studies)),
 		}
 
 		for j, s := range p.Studies {
-			study := StudyConfig{
+			study := types.StudyConfig{
 				Description:        s.Description,
 				Date:               s.Date,
 				AccessionNumber:    s.AccessionNumber,
@@ -80,11 +81,11 @@ func (c *Config) ToWizardState() *WizardState {
 				Priority:           s.Priority,
 				ReferringPhysician: s.ReferringPhysician,
 				CustomTags:         copyMap(s.CustomTags),
-				Series:             make([]SeriesConfig, len(s.Series)),
+				Series:             make([]types.SeriesConfig, len(s.Series)),
 			}
 
 			for k, ser := range s.Series {
-				study.Series[k] = SeriesConfig{
+				study.Series[k] = types.SeriesConfig{
 					Description: ser.Description,
 					Protocol:    ser.Protocol,
 					Orientation: ser.Orientation,
@@ -102,8 +103,8 @@ func (c *Config) ToWizardState() *WizardState {
 	return state
 }
 
-// ToConfig converts WizardState to Config (for YAML serialization).
-func (s *WizardState) ToConfig() *Config {
+// wizardStateToConfig converts WizardState to Config (for YAML serialization).
+func wizardStateToConfig(s *WizardState) *Config {
 	cfg := &Config{
 		Global: GlobalConfigYAML{
 			Modality:          s.Global.Modality,

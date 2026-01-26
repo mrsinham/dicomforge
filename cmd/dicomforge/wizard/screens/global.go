@@ -7,8 +7,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/mrsinham/dicomforge/cmd/dicomforge/wizard"
 	"github.com/mrsinham/dicomforge/cmd/dicomforge/wizard/components"
+	"github.com/mrsinham/dicomforge/cmd/dicomforge/wizard/types"
 	"github.com/mrsinham/dicomforge/internal/util"
 )
 
@@ -16,7 +16,7 @@ import (
 type GlobalScreen struct {
 	form      *huh.Form
 	helpPanel *components.HelpPanel
-	config    *wizard.GlobalConfig
+	config    *types.GlobalConfig
 	width     int
 	height    int
 	done      bool
@@ -30,7 +30,7 @@ type GlobalScreen struct {
 }
 
 // NewGlobalScreen creates a new global configuration screen
-func NewGlobalScreen(config *wizard.GlobalConfig) *GlobalScreen {
+func NewGlobalScreen(config *types.GlobalConfig) *GlobalScreen {
 	// Set defaults if not provided
 	if config.Modality == "" {
 		config.Modality = "MR"
@@ -241,6 +241,6 @@ func (s *GlobalScreen) Cancelled() bool {
 }
 
 // Config returns the configured global settings
-func (s *GlobalScreen) Config() *wizard.GlobalConfig {
+func (s *GlobalScreen) Config() *types.GlobalConfig {
 	return s.config
 }

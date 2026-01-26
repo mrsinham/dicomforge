@@ -7,15 +7,15 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/mrsinham/dicomforge/cmd/dicomforge/wizard"
 	"github.com/mrsinham/dicomforge/cmd/dicomforge/wizard/components"
+	"github.com/mrsinham/dicomforge/cmd/dicomforge/wizard/types"
 )
 
 // SeriesScreen configures a single series
 type SeriesScreen struct {
 	form             *huh.Form
 	helpPanel        *components.HelpPanel
-	series           *wizard.SeriesConfig
+	series           *types.SeriesConfig
 	seriesIndex      int    // 0-based index
 	totalSeries      int    // total number of series
 	studyDescription string // study description for display
@@ -30,7 +30,7 @@ type SeriesScreen struct {
 }
 
 // NewSeriesScreen creates a new series configuration screen
-func NewSeriesScreen(series *wizard.SeriesConfig, index, total int, studyDescription, modality, bodyPart string, totalImages int) *SeriesScreen {
+func NewSeriesScreen(series *types.SeriesConfig, index, total int, studyDescription, modality, bodyPart string, totalImages int) *SeriesScreen {
 	// Calculate default image count (distribute evenly)
 	defaultImageCount := totalImages / total
 	if defaultImageCount < 1 {
@@ -236,7 +236,7 @@ func (s *SeriesScreen) Done() bool { return s.done }
 func (s *SeriesScreen) Cancelled() bool { return s.cancelled }
 
 // Series returns the configured series
-func (s *SeriesScreen) Series() *wizard.SeriesConfig { return s.series }
+func (s *SeriesScreen) Series() *types.SeriesConfig { return s.series }
 
 // BulkSeriesChoice represents the user's choice for remaining series
 type BulkSeriesChoice int

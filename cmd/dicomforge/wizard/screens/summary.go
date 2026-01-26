@@ -7,8 +7,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/mrsinham/dicomforge/cmd/dicomforge/wizard"
 	"github.com/mrsinham/dicomforge/cmd/dicomforge/wizard/components"
+	"github.com/mrsinham/dicomforge/cmd/dicomforge/wizard/types"
 )
 
 // SummaryAction represents the action selected on the summary screen
@@ -68,7 +68,7 @@ var (
 // SummaryScreen displays a summary of wizard configuration before generation
 type SummaryScreen struct {
 	form      *huh.Form
-	state     *wizard.WizardState
+	state     *types.WizardState
 	action    string
 	done      bool
 	cancelled bool
@@ -77,7 +77,7 @@ type SummaryScreen struct {
 }
 
 // NewSummaryScreen creates a new summary screen
-func NewSummaryScreen(state *wizard.WizardState) *SummaryScreen {
+func NewSummaryScreen(state *types.WizardState) *SummaryScreen {
 	s := &SummaryScreen{
 		state:  state,
 		action: actionGenerate, // Default action
@@ -266,7 +266,7 @@ func (s *SummaryScreen) buildTreeView() string {
 		// Studies
 		studies := patient.Studies
 		if len(studies) == 0 {
-			studies = make([]wizard.StudyConfig, s.state.Global.StudiesPerPatient)
+			studies = make([]types.StudyConfig, s.state.Global.StudiesPerPatient)
 		}
 
 		numStudies := len(studies)
@@ -285,7 +285,7 @@ func (s *SummaryScreen) buildTreeView() string {
 			// Series
 			series := studies[si].Series
 			if len(series) == 0 {
-				series = make([]wizard.SeriesConfig, s.state.Global.SeriesPerStudy)
+				series = make([]types.SeriesConfig, s.state.Global.SeriesPerStudy)
 			}
 
 			numSeries := len(series)
@@ -358,10 +358,10 @@ func getGrandchildPrefix(grandparentIsLast, parentIsLast, isLast bool) string {
 }
 
 // generatePreviewPatients generates preview patient structures
-func (s *SummaryScreen) generatePreviewPatients() []wizard.PatientConfig {
-	patients := make([]wizard.PatientConfig, s.state.Global.NumPatients)
+func (s *SummaryScreen) generatePreviewPatients() []types.PatientConfig {
+	patients := make([]types.PatientConfig, s.state.Global.NumPatients)
 	for i := range patients {
-		patients[i] = wizard.PatientConfig{
+		patients[i] = types.PatientConfig{
 			Name: generateDefaultPatientName(i),
 			ID:   fmt.Sprintf("PAT%06d", i+1),
 		}
