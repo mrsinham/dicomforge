@@ -31,12 +31,14 @@ type FileHierarchy struct {
 }
 
 // OrganizeFilesIntoDICOMDIR organizes DICOM files into PT*/ST*/SE* hierarchy and creates DICOMDIR
-func OrganizeFilesIntoDICOMDIR(outputDir string, files []GeneratedFile) error {
+func OrganizeFilesIntoDICOMDIR(outputDir string, files []GeneratedFile, quiet bool) error {
 	if len(files) == 0 {
 		return fmt.Errorf("no files to organize")
 	}
 
-	fmt.Println("\nCreating DICOMDIR file...")
+	if !quiet {
+		fmt.Println("\nCreating DICOMDIR file...")
+	}
 
 	// Group files by patient -> study -> series
 	type SeriesGroup struct {
@@ -143,8 +145,10 @@ func OrganizeFilesIntoDICOMDIR(outputDir string, files []GeneratedFile) error {
 		patientIdx++
 	}
 
-	fmt.Printf("✓ DICOMDIR created with standard hierarchy\n")
-	fmt.Printf("  Organized %d files into PT*/ST*/SE* structure\n", totalMoved)
+	if !quiet {
+		fmt.Printf("✓ DICOMDIR created with standard hierarchy\n")
+		fmt.Printf("  Organized %d files into PT*/ST*/SE* structure\n", totalMoved)
+	}
 
 	// Create DICOMDIR file with directory records
 	if err := createDICOMDIRFile(outputDir); err != nil {
@@ -152,7 +156,9 @@ func OrganizeFilesIntoDICOMDIR(outputDir string, files []GeneratedFile) error {
 	}
 
 	// Clean up original IMG*.dcm files if they still exist
-	fmt.Println("\nCleaning up temporary files...")
+	if !quiet {
+		fmt.Println("\nCleaning up temporary files...")
+	}
 	removedCount := 0
 	pattern := filepath.Join(outputDir, "IMG*.dcm")
 	matches, _ := filepath.Glob(pattern)
@@ -162,15 +168,17 @@ func OrganizeFilesIntoDICOMDIR(outputDir string, files []GeneratedFile) error {
 		}
 	}
 
-	if removedCount > 0 {
-		fmt.Printf("✓ %d temporary files removed\n", removedCount)
-	}
+	if !quiet {
+		if removedCount > 0 {
+			fmt.Printf("✓ %d temporary files removed\n", removedCount)
+		}
 
-	fmt.Println("\nThe DICOM series is ready to be imported!")
-	fmt.Printf("Import the complete directory: %s/\n", outputDir)
-	fmt.Println("\nStandard DICOM structure created:")
-	fmt.Println("  - DICOMDIR (index file)")
-	fmt.Println("  - PT*/ST*/SE*/ (patient/study/series hierarchy)")
+		fmt.Println("\nThe DICOM series is ready to be imported!")
+		fmt.Printf("Import the complete directory: %s/\n", outputDir)
+		fmt.Println("\nStandard DICOM structure created:")
+		fmt.Println("  - DICOMDIR (index file)")
+		fmt.Println("  - PT*/ST*/SE*/ (patient/study/series hierarchy)")
+	}
 
 	return nil
 }

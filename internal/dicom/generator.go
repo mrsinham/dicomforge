@@ -284,6 +284,10 @@ type GeneratorOptions struct {
 
 	// Edge case generation
 	EdgeCaseConfig edgecases.Config // Edge case generation config
+
+	// Output control
+	Quiet            bool                    // Suppress progress output (for TUI integration)
+	ProgressCallback func(current, total int) // Optional callback for progress updates
 }
 
 // getTagValue returns the custom tag value if set, otherwise returns the generated value.
@@ -521,7 +525,9 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 		return nil, fmt.Errorf("calculate dimensions: %w", err)
 	}
 
-	fmt.Printf("Resolution: %dx%d pixels per image\n", width, height)
+	if !opts.Quiet {
+		fmt.Printf("Resolution: %dx%d pixels per image\n", width, height)
+	}
 
 	// Create output directory
 	if err := os.MkdirAll(opts.OutputDir, 0755); err != nil {
@@ -532,14 +538,18 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 	var seed int64
 	if opts.Seed != 0 {
 		seed = opts.Seed
-		fmt.Printf("Using seed: %d\n", seed)
+		if !opts.Quiet {
+			fmt.Printf("Using seed: %d\n", seed)
+		}
 	} else {
 		// Generate deterministic seed from output directory name
 		h := fnv.New64a()
 		_, _ = h.Write([]byte(opts.OutputDir)) // hash.Write never returns an error
 		seed = int64(h.Sum64())
-		fmt.Printf("Auto-generated seed from '%s': %d\n", opts.OutputDir, seed)
-		fmt.Println("  (same directory = same patient/study IDs)")
+		if !opts.Quiet {
+			fmt.Printf("Auto-generated seed from '%s': %d\n", opts.OutputDir, seed)
+			fmt.Println("  (same directory = same patient/study IDs)")
+		}
 	}
 
 	// Create RNG for patient name generation
@@ -640,24 +650,26 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 		}
 	}
 
-	fmt.Printf("Generating %d DICOM files...\n", opts.NumImages)
-	fmt.Printf("Number of patients: %d\n", opts.NumPatients)
-	for i, p := range patients {
-		studyCount := studiesPerPatient
-		if i < remainingStudies {
-			studyCount++
+	if !opts.Quiet {
+		fmt.Printf("Generating %d DICOM files...\n", opts.NumImages)
+		fmt.Printf("Number of patients: %d\n", opts.NumPatients)
+		for i, p := range patients {
+			studyCount := studiesPerPatient
+			if i < remainingStudies {
+				studyCount++
+			}
+			fmt.Printf("  Patient %d: %s (ID: %s, DOB: %s, Sex: %s) - %d studies\n",
+				i+1, p.Name, p.ID, p.BirthDate, p.Sex, studyCount)
 		}
-		fmt.Printf("  Patient %d: %s (ID: %s, DOB: %s, Sex: %s) - %d studies\n",
-			i+1, p.Name, p.ID, p.BirthDate, p.Sex, studyCount)
+		fmt.Printf("Number of studies: %d\n", opts.NumStudies)
 	}
-	fmt.Printf("Number of studies: %d\n", opts.NumStudies)
 
 	// Determine series per study range (default to 1 series if not specified)
 	seriesPerStudy := opts.SeriesPerStudy
 	if seriesPerStudy.Max == 0 {
 		seriesPerStudy = util.SeriesRange{Min: 1, Max: 1}
 	}
-	if seriesPerStudy.IsMultiSeries() {
+	if !opts.Quiet && seriesPerStudy.IsMultiSeries() {
 		fmt.Printf("Series per study: %s\n", seriesPerStudy.String())
 	}
 
@@ -780,11 +792,13 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 		// Generate base modality-specific parameters for this study (shared across all series)
 		baseSeriesParams := modalityGen.GenerateSeriesParams(scanner, rng)
 
-		fmt.Printf("\nStudy %d/%d: %d images in %d series (Patient: %s)\n", studyNum, opts.NumStudies, numImagesThisStudy, numSeriesThisStudy, patient.Name)
-		fmt.Printf("  StudyID: %s, Description: %s\n", studyID, studyDescription)
-		fmt.Printf("  Modality: %s, Scanner: %s %s\n", modalityStr, scanner.Manufacturer, scanner.Model)
-		fmt.Printf("  Resolution: PixelSpacing=%.2fmm, SliceThickness=%.2fmm\n",
-			baseSeriesParams.PixelSpacing, baseSeriesParams.SliceThickness)
+		if !opts.Quiet {
+			fmt.Printf("\nStudy %d/%d: %d images in %d series (Patient: %s)\n", studyNum, opts.NumStudies, numImagesThisStudy, numSeriesThisStudy, patient.Name)
+			fmt.Printf("  StudyID: %s, Description: %s\n", studyID, studyDescription)
+			fmt.Printf("  Modality: %s, Scanner: %s %s\n", modalityStr, scanner.Manufacturer, scanner.Model)
+			fmt.Printf("  Resolution: PixelSpacing=%.2fmm, SliceThickness=%.2fmm\n",
+				baseSeriesParams.PixelSpacing, baseSeriesParams.SliceThickness)
+		}
 
 		// Distribute images across series
 		imagesPerSeries := numImagesThisStudy / numSeriesThisStudy
@@ -840,7 +854,9 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 				imageOrientationPatient[i] = fmt.Sprintf("%.6f", v)
 			}
 
-			fmt.Printf("  Series %d: %s (%d images, %s)\n", seriesNum, seriesDescription, numImagesThisSeries, seriesTemplate.Orientation)
+			if !opts.Quiet {
+				fmt.Printf("  Series %d: %s (%d images, %s)\n", seriesNum, seriesDescription, numImagesThisSeries, seriesTemplate.Orientation)
+			}
 
 			// Build tasks for each image in this series
 			for instanceInSeries := 1; instanceInSeries <= numImagesThisSeries; instanceInSeries++ {
@@ -973,7 +989,9 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 		numWorkers = len(tasks)
 	}
 
-	fmt.Printf("\nGenerating images with %d parallel workers...\n", numWorkers)
+	if !opts.Quiet {
+		fmt.Printf("\nGenerating images with %d parallel workers...\n", numWorkers)
+	}
 
 	// Create channels for work distribution and results
 	taskChan := make(chan imageTask, len(tasks))
@@ -1018,7 +1036,11 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 			firstErr = fmt.Errorf("generate image %d: %w", result.index, result.err)
 		}
 		completed++
-		if completed%10 == 0 || completed == len(tasks) {
+		// Call progress callback if provided
+		if opts.ProgressCallback != nil {
+			opts.ProgressCallback(completed, len(tasks))
+		}
+		if !opts.Quiet && (completed%10 == 0 || completed == len(tasks)) {
 			progress := float64(completed) / float64(len(tasks)) * 100
 			fmt.Printf("  Progress: %d/%d (%.0f%%)\n", completed, len(tasks), progress)
 		}
@@ -1044,7 +1066,9 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 		}
 	}
 
-	fmt.Printf("\n✓ %d DICOM files created in: %s/\n", opts.NumImages, opts.OutputDir)
+	if !opts.Quiet {
+		fmt.Printf("\n✓ %d DICOM files created in: %s/\n", opts.NumImages, opts.OutputDir)
+	}
 
 	return generatedFiles, nil
 }

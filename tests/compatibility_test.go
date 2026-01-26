@@ -34,7 +34,7 @@ func TestCompatibility_PythonValidation(t *testing.T) {
 		t.Fatalf("GenerateDICOMSeries failed: %v", err)
 	}
 
-	err = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir, files)
+	err = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir, files, false)
 	if err != nil {
 		t.Fatalf("OrganizeFilesIntoDICOMDIR failed: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestCompatibility_MetadataExtraction(t *testing.T) {
 		t.Fatalf("GenerateDICOMSeries failed: %v", err)
 	}
 
-	err = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir, files)
+	err = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir, files, false)
 	if err != nil {
 		t.Fatalf("OrganizeFilesIntoDICOMDIR failed: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestCompatibility_DICOMDIRStructure(t *testing.T) {
 		t.Fatalf("GenerateDICOMSeries failed: %v", err)
 	}
 
-	err = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir, files)
+	err = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir, files, false)
 	if err != nil {
 		t.Fatalf("OrganizeFilesIntoDICOMDIR failed: %v", err)
 	}
@@ -261,7 +261,7 @@ func TestCompatibility_SameSeedComparison(t *testing.T) {
 		t.Fatalf("Go generation failed: %v", err)
 	}
 
-	err = internaldicom.OrganizeFilesIntoDICOMDIR(goOutputDir, goFiles)
+	err = internaldicom.OrganizeFilesIntoDICOMDIR(goOutputDir, goFiles, false)
 	if err != nil {
 		t.Fatalf("Go DICOMDIR organization failed: %v", err)
 	}

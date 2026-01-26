@@ -99,7 +99,7 @@ func BenchmarkOrganizeFiles(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		_ = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir, files)
+		_ = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir, files, false)
 	}
 }
 

@@ -1,0 +1,19 @@
+global:
+  modality: MR
+  total_images: 20
+  total_size: 200MB
+  output: ./simple_mr
+
+patients:
+  - name: SMITH^John
+    id: PAT001
+    birth_date: 1980-05-15
+    sex: M
+    studies:
+      - description: Brain MRI
+        body_part: HEAD
+        series:
+          - description: T1 SAG
+            images: 10
+          - description: T2 AX
+            images: 10

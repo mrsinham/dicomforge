@@ -4,6 +4,7 @@ This guide provides detailed examples for all features of dicomforge. Each secti
 
 ## Table of Contents
 
+- [Interactive Wizard](#interactive-wizard)
 - [Basic Usage](#basic-usage)
 - [Modalities](#modalities)
 - [Multi-Studies and Multi-Patients](#multi-studies-and-multi-patients)
@@ -15,6 +16,127 @@ This guide provides detailed examples for all features of dicomforge. Each secti
 - [Reproducibility](#reproducibility)
 - [Performance Tuning](#performance-tuning)
 - [Real-World Scenarios](#real-world-scenarios)
+
+---
+
+## Interactive Wizard
+
+The interactive wizard provides a guided experience for configuring DICOM generation, perfect for users who prefer step-by-step setup over command-line flags.
+
+### Launch the Wizard
+
+```bash
+# Using the wizard subcommand
+dicomforge wizard
+
+# Or using the --interactive flag
+dicomforge --interactive
+```
+
+### Wizard Flow Overview
+
+The wizard guides you through these steps:
+
+1. **Global Settings**
+   - Modality (MR, CT, CR, DX, US, MG)
+   - Total number of images
+   - Total size
+   - Output directory
+   - Random seed (optional)
+
+2. **Patient Configuration**
+   - Patient name (DICOM format: LASTNAME^Firstname)
+   - Patient ID
+   - Birth date
+   - Sex
+
+3. **Studies per Patient**
+   - Study description
+   - Study date
+   - Body part examined
+
+4. **Series per Study**
+   - Series description
+   - Number of images in series
+
+5. **Preview & Actions**
+   - Review the complete configuration
+   - Generate DICOM files
+   - Save configuration to YAML
+   - Edit configuration
+
+### Configuration Files
+
+The wizard can save and load YAML configuration files, making it easy to reproduce complex setups.
+
+#### Save Configuration
+
+After configuring in the wizard, choose "Save config" to export your settings:
+
+```bash
+dicomforge wizard
+# ... configure your settings ...
+# Choose "Save config" and specify filename
+```
+
+#### Load Configuration
+
+Run dicomforge with a saved config file:
+
+```bash
+dicomforge --config myconfig.yaml
+```
+
+#### Edit Configuration with Wizard
+
+Load an existing config into the wizard for modification:
+
+```bash
+dicomforge wizard --from myconfig.yaml
+```
+
+### Example Configuration File Format
+
+Configuration files use YAML format with the following structure:
+
+```yaml
+global:
+  modality: MR
+  total_images: 20
+  total_size: 200MB
+  output: ./output_directory
+  seed: 12345  # optional
+
+patients:
+  - name: LASTNAME^Firstname
+    id: PAT001
+    birth_date: 1980-05-15
+    sex: M
+    studies:
+      - description: Study Description
+        date: 2026-01-15
+        body_part: HEAD
+        series:
+          - description: T1 SAG
+            images: 10
+          - description: T2 AX
+            images: 10
+```
+
+### Example Config Files
+
+See the `examples/configs/` directory for ready-to-use configuration files:
+
+- `simple_mr.yaml` - Basic MR brain scan with two series
+- `clinical_trial.yaml` - Multi-patient longitudinal study
+
+```bash
+# Use an example config
+dicomforge --config examples/configs/simple_mr.yaml
+
+# Edit an example with the wizard
+dicomforge wizard --from examples/configs/clinical_trial.yaml
+```
 
 ---
 

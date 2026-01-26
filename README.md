@@ -87,6 +87,41 @@ go build -o dicomforge ./cmd/dicomforge/
 
 > **[See Complete Examples Guide](docs/EXAMPLES.md)** - Detailed examples for all features: multi-series, custom tags, edge cases, clinical trial simulations, and more.
 
+## Interactive Wizard
+
+For a guided experience, use the interactive wizard:
+
+```bash
+# Launch the wizard
+dicomforge wizard
+
+# Or use the --interactive flag
+dicomforge --interactive
+```
+
+**Key features:**
+- **Guided configuration** - Step-by-step prompts for all options
+- **Help panel** - Context-sensitive help for each field
+- **Live preview** - See the resulting DICOM structure before generating
+- **Config save/load** - Save your configuration to YAML for later use
+
+**Wizard flow:**
+1. Global settings (modality, total images, output directory)
+2. Patient configuration (name, ID, birth date, sex)
+3. Study and series setup per patient
+4. Preview the configuration
+5. Generate or save config for later
+
+```bash
+# Load a saved configuration
+dicomforge --config myconfig.yaml
+
+# Edit an existing config with the wizard
+dicomforge wizard --from myconfig.yaml
+```
+
+> **[See Examples Guide](docs/EXAMPLES.md#interactive-wizard)** for detailed wizard usage and example config files.
+
 ## Usage
 
 ```bash

@@ -264,7 +264,7 @@ func TestEdgeCase_SingleImage(t *testing.T) {
 		t.Errorf("Expected 1 file, got %d", len(files))
 	}
 
-	err = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir, files)
+	err = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir, files, false)
 	if err != nil {
 		t.Fatalf("Failed to organize single image: %v", err)
 	}
@@ -299,7 +299,7 @@ func TestEdgeCase_LargeNumberOfImages(t *testing.T) {
 	}
 
 	t.Logf("Organizing 100 images into DICOMDIR...")
-	err = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir, files)
+	err = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir, files, false)
 	if err != nil {
 		t.Fatalf("Failed to organize 100 images: %v", err)
 	}
@@ -355,7 +355,7 @@ func TestEdgeCase_ManyStudies(t *testing.T) {
 		t.Fatalf("Failed to generate multi-study series: %v", err)
 	}
 
-	err = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir, files)
+	err = internaldicom.OrganizeFilesIntoDICOMDIR(outputDir, files, false)
 	if err != nil {
 		t.Fatalf("Failed to organize multi-study series: %v", err)
 	}

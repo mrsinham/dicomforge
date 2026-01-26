@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/mrsinham/dicomforge/cmd/dicomforge/wizard"
 	"github.com/mrsinham/dicomforge/internal/dicom"
 	"github.com/mrsinham/dicomforge/internal/dicom/edgecases"
 	"github.com/mrsinham/dicomforge/internal/dicom/modalities"
@@ -17,6 +18,22 @@ import (
 var version = "dev"
 
 func main() {
+	// Check for wizard subcommand (before flag.Parse)
+	if len(os.Args) > 1 && os.Args[1] == "wizard" {
+		// Extract --from flag if present
+		var fromConfig string
+		for i, arg := range os.Args[2:] {
+			if arg == "--from" && i+3 < len(os.Args) {
+				fromConfig = os.Args[i+3]
+			}
+		}
+		if err := wizard.Run(fromConfig); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
 	// Define command-line flags
 	numImages := flag.Int("num-images", 0, "Number of images/slices to generate (required)")
 	totalSize := flag.String("total-size", "", "Total size (e.g., '100MB', '1GB') (required)")
@@ -52,10 +69,44 @@ func main() {
 	edgeCaseTypes := flag.String("edge-case-types", "special-chars,long-names,missing-tags,old-dates,varied-ids",
 		"Comma-separated edge case types to enable")
 
+	// Interactive wizard and config options
+	interactive := flag.Bool("interactive", false, "Launch interactive wizard")
+	flag.BoolVar(interactive, "i", false, "Launch interactive wizard (shortcut)")
+	configFile := flag.String("config", "", "Load configuration from YAML file")
+	saveConfig := flag.String("save-config", "", "Save configuration to YAML file (after generation)")
+
 	help := flag.Bool("help", false, "Show help message")
 	showVersion := flag.Bool("version", false, "Show version")
 
 	flag.Parse()
+
+	// Handle interactive mode
+	if *interactive {
+		if err := wizard.Run(""); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
+	// Handle config file loading
+	if *configFile != "" {
+		state, err := wizard.LoadFromYAML(*configFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+			os.Exit(1)
+		}
+		// Convert state to GeneratorOptions and use it
+		// For now, just print that we loaded it
+		fmt.Printf("Loaded config from %s\n", *configFile)
+		fmt.Printf("Would generate %d images for %d patients\n", state.Global.TotalImages, len(state.Patients))
+		// TODO: Convert to GeneratorOptions in future task
+		os.Exit(0)
+	}
+
+	if *saveConfig != "" {
+		fmt.Fprintf(os.Stderr, "Warning: --save-config is not yet implemented\n")
+	}
 
 	// Show version
 	if *showVersion {
@@ -204,7 +255,7 @@ func main() {
 	}
 
 	// Organize into DICOMDIR structure
-	if err := dicom.OrganizeFilesIntoDICOMDIR(*outputDir, generatedFiles); err != nil {
+	if err := dicom.OrganizeFilesIntoDICOMDIR(*outputDir, generatedFiles, false); err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating DICOMDIR: %v\n", err)
 		os.Exit(1)
 	}
