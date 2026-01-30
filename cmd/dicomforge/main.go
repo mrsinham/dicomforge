@@ -96,16 +96,31 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
 			os.Exit(1)
 		}
-		// Convert state to GeneratorOptions and use it
-		// For now, just print that we loaded it
-		fmt.Printf("Loaded config from %s\n", *configFile)
-		fmt.Printf("Would generate %d images for %d patients\n", state.Global.TotalImages, len(state.Patients))
-		// TODO: Convert to GeneratorOptions in future task
-		os.Exit(0)
-	}
 
-	if *saveConfig != "" {
-		fmt.Fprintf(os.Stderr, "Warning: --save-config is not yet implemented\n")
+		opts, err := wizard.ToGeneratorOptions(state)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error converting config: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Println("dicomforge")
+		fmt.Println("==========")
+		fmt.Printf("Loading config from %s\n\n", *configFile)
+
+		generatedFiles, err := dicom.GenerateDICOMSeries(opts)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error generating DICOM series: %v\n", err)
+			os.Exit(1)
+		}
+
+		if err := dicom.OrganizeFilesIntoDICOMDIR(opts.OutputDir, generatedFiles, false); err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating DICOMDIR: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Println("\n✓ Generation complete!")
+		fmt.Printf("  Import directory: %s\n", opts.OutputDir)
+		os.Exit(0)
 	}
 
 	// Show version
@@ -258,6 +273,16 @@ func main() {
 	if err := dicom.OrganizeFilesIntoDICOMDIR(*outputDir, generatedFiles, false); err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating DICOMDIR: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Save config if requested
+	if *saveConfig != "" {
+		state := wizard.FromGeneratorOptions(opts)
+		if err := wizard.SaveToYAML(state, *saveConfig); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not save config: %v\n", err)
+		} else {
+			fmt.Printf("Configuration saved to %s\n", *saveConfig)
+		}
 	}
 
 	fmt.Println("\n✓ Generation complete!")

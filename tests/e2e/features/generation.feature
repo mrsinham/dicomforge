@@ -301,3 +301,135 @@ Feature: DICOM Generation
     When I run dicomforge with "--num-images 6 --total-size 400KB --num-studies 3 --study-descriptions IRM_T0,IRM_M3 --output {tmpdir}"
     Then the exit code should be 1
     And the output should contain "must match"
+
+  # YAML Configuration
+
+  Scenario: Generate from YAML config file
+    Given dicomforge is built
+    And a config file "{tmpdir}/config.yaml" with:
+      """
+      global:
+        modality: MR
+        total_images: 4
+        total_size: "200KB"
+        output: {tmpdir}/output
+      patients:
+        - name: "DUPONT^JEAN"
+          id: "P12345"
+          birth_date: "19850315"
+          sex: "M"
+          studies:
+            - description: "IRM Cerebrale"
+              date: "20240120"
+              institution: "CHU Test"
+              body_part: "HEAD"
+              series:
+                - description: "T1"
+                  images: 2
+                - description: "T2"
+                  images: 2
+      """
+    When I run dicomforge with "--config {tmpdir}/config.yaml"
+    Then the exit code should be 0
+    And the output should contain "Loading config from"
+    And "{tmpdir}/output" should contain 4 DICOM files
+    And DICOM tag "PatientName" in "{tmpdir}/output" should contain "DUPONT^JEAN"
+    And DICOM tag "PatientID" in "{tmpdir}/output" should contain "P12345"
+    And DICOM tag "StudyDescription" in "{tmpdir}/output" should contain "IRM Cerebrale"
+    And DICOM tag "InstitutionName" in "{tmpdir}/output" should contain "CHU Test"
+
+  Scenario: Generate from config with multiple patients
+    Given dicomforge is built
+    And a config file "{tmpdir}/config.yaml" with:
+      """
+      global:
+        modality: CT
+        total_images: 4
+        total_size: "200KB"
+        output: {tmpdir}/output
+      patients:
+        - name: "MARTIN^PIERRE"
+          id: "P001"
+          sex: "M"
+          studies:
+            - description: "CT Thorax"
+              series:
+                - description: "Sans contraste"
+                  images: 2
+        - name: "DURAND^MARIE"
+          id: "P002"
+          sex: "F"
+          studies:
+            - description: "CT Abdominal"
+              series:
+                - description: "Portal"
+                  images: 2
+      """
+    When I run dicomforge with "--config {tmpdir}/config.yaml"
+    Then the exit code should be 0
+    And "{tmpdir}/output" should contain 4 DICOM files
+    And "{tmpdir}/output" should contain 2 patient directories
+
+  Scenario: Config file not found
+    Given dicomforge is built
+    When I run dicomforge with "--config {tmpdir}/nonexistent.yaml"
+    Then the exit code should be 1
+    And the output should contain "Error loading config"
+
+  Scenario: Save config after generation
+    Given dicomforge is built
+    When I run dicomforge with "--num-images 3 --total-size 200KB --modality CT --num-patients 2 --num-studies 2 --output {tmpdir}/output --save-config {tmpdir}/saved.yaml"
+    Then the exit code should be 0
+    And the output should contain "Configuration saved to"
+    And "{tmpdir}/saved.yaml" should exist
+    And "{tmpdir}/saved.yaml" should contain "modality: CT"
+    And "{tmpdir}/saved.yaml" should contain "total_images: 3"
+    And "{tmpdir}/saved.yaml" should contain "num_patients: 2"
+
+  Scenario: Config with custom series protocols
+    Given dicomforge is built
+    And a config file "{tmpdir}/config.yaml" with:
+      """
+      global:
+        modality: MR
+        total_images: 3
+        total_size: "200KB"
+        output: {tmpdir}/output
+      patients:
+        - name: "TEST^PATIENT"
+          id: "P999"
+          studies:
+            - description: "Brain MRI"
+              body_part: "HEAD"
+              priority: "HIGH"
+              series:
+                - description: "FLAIR"
+                  protocol: "T2_FLAIR_AX"
+                  images: 3
+      """
+    When I run dicomforge with "--config {tmpdir}/config.yaml"
+    Then the exit code should be 0
+    And "{tmpdir}/output" should contain 3 DICOM files
+    And DICOM tag "BodyPartExamined" in "{tmpdir}/output" should contain "HEAD"
+    And dcmdump should successfully parse all files in "{tmpdir}/output"
+
+  Scenario: Config with minimal global settings
+    Given dicomforge is built
+    And a config file "{tmpdir}/config.yaml" with:
+      """
+      global:
+        total_images: 2
+        total_size: "200KB"
+        output: {tmpdir}/output
+      patients:
+        - name: "SIMPLE^TEST"
+          studies:
+            - description: "Simple Study"
+              series:
+                - description: "Series 1"
+                  images: 2
+      """
+    When I run dicomforge with "--config {tmpdir}/config.yaml"
+    Then the exit code should be 0
+    And "{tmpdir}/output" should contain 2 DICOM files
+    And DICOM tag "PatientName" in "{tmpdir}/output" should contain "SIMPLE^TEST"

@@ -288,6 +288,40 @@ type GeneratorOptions struct {
 	// Output control
 	Quiet            bool                    // Suppress progress output (for TUI integration)
 	ProgressCallback func(current, total int) // Optional callback for progress updates
+
+	// Pre-defined patient data (from config file)
+	// When set, overrides random generation for patient/study/series metadata
+	PredefinedPatients []PredefinedPatient
+}
+
+// PredefinedPatient holds pre-configured patient data from config file.
+type PredefinedPatient struct {
+	Name      string
+	ID        string
+	BirthDate string
+	Sex       string
+	Studies   []PredefinedStudy
+}
+
+// PredefinedStudy holds pre-configured study data from config file.
+type PredefinedStudy struct {
+	Description        string
+	Date               string
+	AccessionNumber    string
+	Institution        string
+	Department         string
+	BodyPart           string
+	Priority           string
+	ReferringPhysician string
+	Series             []PredefinedSeries
+}
+
+// PredefinedSeries holds pre-configured series data from config file.
+type PredefinedSeries struct {
+	Description string
+	Protocol    string
+	Orientation string
+	ImageCount  int // 0 = auto-distribute
 }
 
 // getTagValue returns the custom tag value if set, otherwise returns the generated value.
@@ -502,6 +536,16 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 	if opts.NumImages <= 0 {
 		return nil, fmt.Errorf("number of images must be > 0, got %d", opts.NumImages)
 	}
+
+	// When using predefined patients, infer counts from the structure
+	if len(opts.PredefinedPatients) > 0 {
+		opts.NumPatients = len(opts.PredefinedPatients)
+		opts.NumStudies = 0
+		for _, p := range opts.PredefinedPatients {
+			opts.NumStudies += len(p.Studies)
+		}
+	}
+
 	if opts.NumStudies <= 0 {
 		return nil, fmt.Errorf("number of studies must be > 0, got %d", opts.NumStudies)
 	}
@@ -561,30 +605,62 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 		edgeCaseApplicator = edgecases.NewApplicator(opts.EdgeCaseConfig, rng)
 	}
 
-	// Generate all patients
-	patients := make([]patientInfo, opts.NumPatients)
-	for i := 0; i < opts.NumPatients; i++ {
-		generatedSex := []string{"M", "F"}[rng.IntN(2)]
-		generatedBirthDate := fmt.Sprintf("%04d%02d%02d",
-			rng.IntN(51)+1950, // 1950-2000
-			rng.IntN(12)+1,    // 1-12
-			rng.IntN(28)+1)    // 1-28
-		generatedID := fmt.Sprintf("PID%06d", rng.IntN(900000)+100000)
-		generatedName := util.GeneratePatientName(generatedSex, rng)
+	// Generate or use predefined patients
+	numPatients := opts.NumPatients
+	if len(opts.PredefinedPatients) > 0 {
+		numPatients = len(opts.PredefinedPatients)
+	}
+	patients := make([]patientInfo, numPatients)
 
-		// Apply edge cases if enabled and dice roll succeeds
-		if edgeCaseApplicator != nil && edgeCaseApplicator.ShouldApply() {
-			generatedName = edgeCaseApplicator.ApplyToPatientName(generatedSex, generatedName)
-			generatedID = edgeCaseApplicator.ApplyToPatientID(generatedID)
-			generatedBirthDate = edgeCaseApplicator.ApplyToBirthDate(generatedBirthDate)
+	if len(opts.PredefinedPatients) > 0 {
+		// Use predefined patient data from config file
+		for i, p := range opts.PredefinedPatients {
+			patients[i] = patientInfo{
+				ID:        p.ID,
+				Name:      p.Name,
+				Sex:       p.Sex,
+				BirthDate: p.BirthDate,
+			}
+			// Generate missing values
+			if patients[i].Sex == "" {
+				patients[i].Sex = []string{"M", "F"}[rng.IntN(2)]
+			}
+			if patients[i].BirthDate == "" {
+				patients[i].BirthDate = fmt.Sprintf("%04d%02d%02d",
+					rng.IntN(51)+1950, rng.IntN(12)+1, rng.IntN(28)+1)
+			}
+			if patients[i].ID == "" {
+				patients[i].ID = fmt.Sprintf("PID%06d", rng.IntN(900000)+100000)
+			}
+			if patients[i].Name == "" {
+				patients[i].Name = util.GeneratePatientName(patients[i].Sex, rng)
+			}
 		}
+	} else {
+		// Generate random patients
+		for i := 0; i < numPatients; i++ {
+			generatedSex := []string{"M", "F"}[rng.IntN(2)]
+			generatedBirthDate := fmt.Sprintf("%04d%02d%02d",
+				rng.IntN(51)+1950, // 1950-2000
+				rng.IntN(12)+1,    // 1-12
+				rng.IntN(28)+1)    // 1-28
+			generatedID := fmt.Sprintf("PID%06d", rng.IntN(900000)+100000)
+			generatedName := util.GeneratePatientName(generatedSex, rng)
 
-		// Apply custom tags - patient-level custom tags apply to all patients
-		patients[i] = patientInfo{
-			ID:        getTagValue(opts.CustomTags, "PatientID", generatedID),
-			Sex:       getTagValue(opts.CustomTags, "PatientSex", generatedSex),
-			BirthDate: getTagValue(opts.CustomTags, "PatientBirthDate", generatedBirthDate),
-			Name:      getTagValue(opts.CustomTags, "PatientName", generatedName),
+			// Apply edge cases if enabled and dice roll succeeds
+			if edgeCaseApplicator != nil && edgeCaseApplicator.ShouldApply() {
+				generatedName = edgeCaseApplicator.ApplyToPatientName(generatedSex, generatedName)
+				generatedID = edgeCaseApplicator.ApplyToPatientID(generatedID)
+				generatedBirthDate = edgeCaseApplicator.ApplyToBirthDate(generatedBirthDate)
+			}
+
+			// Apply custom tags - patient-level custom tags apply to all patients
+			patients[i] = patientInfo{
+				ID:        getTagValue(opts.CustomTags, "PatientID", generatedID),
+				Sex:       getTagValue(opts.CustomTags, "PatientSex", generatedSex),
+				BirthDate: getTagValue(opts.CustomTags, "PatientBirthDate", generatedBirthDate),
+				Name:      getTagValue(opts.CustomTags, "PatientName", generatedName),
+			}
 		}
 	}
 
@@ -630,38 +706,59 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 		defaultAccessionNumber = fmt.Sprintf("ACC%08d", rng.IntN(90000000)+10000000)
 	}
 
-	// Calculate studies per patient (distribute evenly)
-	studiesPerPatient := opts.NumStudies / opts.NumPatients
-	remainingStudies := opts.NumStudies % opts.NumPatients
-
 	// Build patient-to-study assignment
-	// Each patient gets at least studiesPerPatient studies
-	// First remainingStudies patients get one extra
-	patientForStudy := make([]int, opts.NumStudies)
-	studyIdx := 0
-	for patientIdx := 0; patientIdx < opts.NumPatients; patientIdx++ {
-		numStudiesForThisPatient := studiesPerPatient
-		if patientIdx < remainingStudies {
-			numStudiesForThisPatient++
+	type studyMapping struct {
+		patientIdx int
+		studyIdx   int // index within patient's studies (for predefined)
+	}
+
+	var patientForStudy []studyMapping
+	var numStudies int
+
+	if len(opts.PredefinedPatients) > 0 {
+		// Build mapping from predefined patients' studies
+		for patientIdx, p := range opts.PredefinedPatients {
+			for studyIdx := range p.Studies {
+				patientForStudy = append(patientForStudy, studyMapping{
+					patientIdx: patientIdx,
+					studyIdx:   studyIdx,
+				})
+			}
 		}
-		for s := 0; s < numStudiesForThisPatient; s++ {
-			patientForStudy[studyIdx] = patientIdx
-			studyIdx++
+		numStudies = len(patientForStudy)
+	} else {
+		// Calculate studies per patient (distribute evenly)
+		numStudies = opts.NumStudies
+		studiesPerPatient := numStudies / numPatients
+		remainingStudies := numStudies % numPatients
+
+		patientForStudy = make([]studyMapping, numStudies)
+		studyIdx := 0
+		for patientIdx := 0; patientIdx < numPatients; patientIdx++ {
+			numStudiesForThisPatient := studiesPerPatient
+			if patientIdx < remainingStudies {
+				numStudiesForThisPatient++
+			}
+			for s := 0; s < numStudiesForThisPatient; s++ {
+				patientForStudy[studyIdx] = studyMapping{patientIdx: patientIdx, studyIdx: s}
+				studyIdx++
+			}
 		}
 	}
 
 	if !opts.Quiet {
 		fmt.Printf("Generating %d DICOM files...\n", opts.NumImages)
-		fmt.Printf("Number of patients: %d\n", opts.NumPatients)
-		for i, p := range patients {
-			studyCount := studiesPerPatient
-			if i < remainingStudies {
-				studyCount++
-			}
-			fmt.Printf("  Patient %d: %s (ID: %s, DOB: %s, Sex: %s) - %d studies\n",
-				i+1, p.Name, p.ID, p.BirthDate, p.Sex, studyCount)
+		fmt.Printf("Number of patients: %d\n", numPatients)
+		// Count studies per patient from the mapping
+		studyCountPerPatient := make(map[int]int)
+		for _, m := range patientForStudy {
+			studyCountPerPatient[m.patientIdx]++
 		}
-		fmt.Printf("Number of studies: %d\n", opts.NumStudies)
+		for i, p := range patients {
+			fmt.Printf("  Patient %d: %s (ID: %s, DOB: %s, Sex: %s) - %d studies\n",
+				i+1, p.Name, p.ID, p.BirthDate, p.Sex, studyCountPerPatient[i])
+		}
+		fmt.Printf("Number of studies: %d\n", numStudies)
 	}
 
 	// Determine series per study range (default to 1 series if not specified)
@@ -687,8 +784,15 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 
 	// Phase 1: Build all tasks sequentially (maintains determinism)
 	for studyNum := 1; studyNum <= opts.NumStudies; studyNum++ {
-		// Get patient for this study
-		patient := patients[patientForStudy[studyNum-1]]
+		// Get patient and study mapping for this study
+		mapping := patientForStudy[studyNum-1]
+		patient := patients[mapping.patientIdx]
+
+		// Get predefined study data if available
+		var predefinedStudy *PredefinedStudy
+		if len(opts.PredefinedPatients) > 0 {
+			predefinedStudy = &opts.PredefinedPatients[mapping.patientIdx].Studies[mapping.studyIdx]
+		}
 
 		// Generate deterministic UIDs for this study
 		studyUID := util.GenerateDeterministicUID(fmt.Sprintf("%s_study_%d", opts.OutputDir, studyNum))
@@ -698,7 +802,9 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 		// Generate study-specific info
 		studyID := fmt.Sprintf("STD%04d", rng.IntN(9000)+1000)
 		var studyDescription string
-		if len(opts.StudyDescriptions) > 0 && studyNum-1 < len(opts.StudyDescriptions) {
+		if predefinedStudy != nil && predefinedStudy.Description != "" {
+			studyDescription = predefinedStudy.Description
+		} else if len(opts.StudyDescriptions) > 0 && studyNum-1 < len(opts.StudyDescriptions) {
 			// Use custom study description if provided
 			studyDescription = opts.StudyDescriptions[studyNum-1]
 		} else {
@@ -718,6 +824,9 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 			rng.IntN(5)+2020, // 2020-2024
 			rng.IntN(12)+1,   // 1-12
 			rng.IntN(28)+1)   // 1-28
+		if predefinedStudy != nil && predefinedStudy.Date != "" {
+			studyDate = predefinedStudy.Date
+		}
 		studyTime := fmt.Sprintf("%02d%02d%02d",
 			rng.IntN(24),  // 0-23 hours
 			rng.IntN(60),  // 0-59 minutes
@@ -734,20 +843,40 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 
 		// Categorization metadata for this study
 		var studyInstitution util.Institution
-		if opts.VariedMetadata {
+		if predefinedStudy != nil && predefinedStudy.Institution != "" {
+			studyInstitution = util.Institution{
+				Name:       predefinedStudy.Institution,
+				Department: predefinedStudy.Department,
+			}
+		} else if opts.VariedMetadata {
 			studyInstitution = util.GenerateInstitution(rng)
 		} else {
 			studyInstitution = defaultInstitution
 		}
 
+		// Use predefined body part if available
+		studyBodyPart := bodyPart
+		if predefinedStudy != nil && predefinedStudy.BodyPart != "" {
+			studyBodyPart = predefinedStudy.BodyPart
+		}
+
 		// Generate or use defaults for study-level tags
 		var referringPhysician, performingPhysician, operatorName, stationName, accessionNumber string
-		if opts.VariedMetadata {
+		if predefinedStudy != nil && predefinedStudy.ReferringPhysician != "" {
+			referringPhysician = predefinedStudy.ReferringPhysician
+			performingPhysician = util.GeneratePhysicianName(rng)
+			operatorName = util.GeneratePhysicianName(rng)
+			stationName = util.GenerateStationName(modalityStr, studyBodyPart, rng)
+			accessionNumber = predefinedStudy.AccessionNumber
+			if accessionNumber == "" {
+				accessionNumber = fmt.Sprintf("ACC%08d", rng.IntN(90000000)+10000000)
+			}
+		} else if opts.VariedMetadata {
 			// Generate new values per study when varied
 			referringPhysician = util.GeneratePhysicianName(rng)
 			performingPhysician = util.GeneratePhysicianName(rng)
 			operatorName = util.GeneratePhysicianName(rng)
-			stationName = util.GenerateStationName(modalityStr, bodyPart, rng)
+			stationName = util.GenerateStationName(modalityStr, studyBodyPart, rng)
 			accessionNumber = fmt.Sprintf("ACC%08d", rng.IntN(90000000)+10000000)
 		} else {
 			// Use defaults (same across all studies)
@@ -766,23 +895,36 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 		operatorName = getTagValue(opts.CustomTags, "OperatorsName", operatorName)
 		stationName = getTagValue(opts.CustomTags, "StationName", stationName)
 		accessionNumber = getTagValue(opts.CustomTags, "AccessionNumber", accessionNumber)
-		requestedProcedurePriority := getTagValue(opts.CustomTags, "RequestedProcedurePriority", opts.Priority.String())
+
+		// Use predefined priority or default
+		studyPriority := opts.Priority.String()
+		if predefinedStudy != nil && predefinedStudy.Priority != "" {
+			studyPriority = predefinedStudy.Priority
+		}
+		requestedProcedurePriority := getTagValue(opts.CustomTags, "RequestedProcedurePriority", studyPriority)
 
 		// Generate series-level tags with custom overrides
-		protocolName := util.GenerateProtocolName(modalityStr, bodyPart, rng)
-		clinicalIndication := util.GenerateClinicalIndication(modalityStr, bodyPart, rng)
+		protocolName := util.GenerateProtocolName(modalityStr, studyBodyPart, rng)
+		clinicalIndication := util.GenerateClinicalIndication(modalityStr, studyBodyPart, rng)
 
 		// Apply custom tag overrides for series-level tags
 		protocolName = getTagValue(opts.CustomTags, "ProtocolName", protocolName)
-		bodyPartExamined := getTagValue(opts.CustomTags, "BodyPartExamined", bodyPart)
+		bodyPartExamined := getTagValue(opts.CustomTags, "BodyPartExamined", studyBodyPart)
 		requestedProcedureDescription := getTagValue(opts.CustomTags, "RequestedProcedureDescription", clinicalIndication)
 
 		// Determine number of series for this study
-		numSeriesThisStudy := seriesPerStudy.GetSeriesCount(rng)
+		var numSeriesThisStudy int
+		if predefinedStudy != nil && len(predefinedStudy.Series) > 0 {
+			numSeriesThisStudy = len(predefinedStudy.Series)
+		} else {
+			numSeriesThisStudy = seriesPerStudy.GetSeriesCount(rng)
+		}
 
 		// Get series templates for this modality
-		seriesTemplates := modalities.GetSeriesTemplates(opts.Modality, bodyPart, numSeriesThisStudy, rng)
-		numSeriesThisStudy = len(seriesTemplates) // May be limited by available templates
+		seriesTemplates := modalities.GetSeriesTemplates(opts.Modality, studyBodyPart, numSeriesThisStudy, rng)
+		if predefinedStudy == nil || len(predefinedStudy.Series) == 0 {
+			numSeriesThisStudy = len(seriesTemplates) // May be limited by available templates
+		}
 
 		// Ensure at least 1 series
 		if numSeriesThisStudy < 1 {
@@ -811,9 +953,31 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 			// Generate deterministic series UID
 			seriesUID := util.GenerateDeterministicUID(fmt.Sprintf("%s_study_%d_series_%d", opts.OutputDir, studyNum, seriesNum))
 
+			// Get predefined series if available
+			var predefinedSeries *PredefinedSeries
+			if predefinedStudy != nil && seriesNum <= len(predefinedStudy.Series) {
+				predefinedSeries = &predefinedStudy.Series[seriesNum-1]
+			}
+
 			// Get series template (if available)
 			var seriesTemplate modalities.SeriesTemplate
-			if seriesNum <= len(seriesTemplates) {
+			var predefinedProtocol string
+			if predefinedSeries != nil {
+				// Build template from predefined data
+				seriesTemplate = modalities.SeriesTemplate{
+					SeriesDescription: predefinedSeries.Description,
+				}
+				predefinedProtocol = predefinedSeries.Protocol
+				// Parse orientation if provided
+				switch predefinedSeries.Orientation {
+				case "Sagittal", "sagittal", "SAG":
+					seriesTemplate.Orientation = modalities.OrientationSagittal
+				case "Coronal", "coronal", "COR":
+					seriesTemplate.Orientation = modalities.OrientationCoronal
+				default:
+					seriesTemplate.Orientation = modalities.OrientationAxial
+				}
+			} else if seriesNum <= len(seriesTemplates) {
 				seriesTemplate = seriesTemplates[seriesNum-1]
 			} else {
 				// Fallback template
@@ -835,9 +999,14 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 			}
 
 			// Calculate images for this series
-			numImagesThisSeries := imagesPerSeries
-			if seriesNum <= remainingSeriesImages {
-				numImagesThisSeries++
+			var numImagesThisSeries int
+			if predefinedSeries != nil && predefinedSeries.ImageCount > 0 {
+				numImagesThisSeries = predefinedSeries.ImageCount
+			} else {
+				numImagesThisSeries = imagesPerSeries
+				if seriesNum <= remainingSeriesImages {
+					numImagesThisSeries++
+				}
 			}
 
 			// Generate series description
@@ -846,6 +1015,12 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 				generatedSeriesDescription = fmt.Sprintf("Series %d - %s", seriesNum, modalityStr)
 			}
 			seriesDescription := getTagValue(opts.CustomTags, "SeriesDescription", generatedSeriesDescription)
+
+			// Use series-specific protocol if available
+			seriesProtocolName := protocolName
+			if predefinedProtocol != "" {
+				seriesProtocolName = predefinedProtocol
+			}
 
 			// Get image orientation from template
 			imageOrientationValues := seriesTemplate.ImageOrientationPatient()
@@ -923,7 +1098,7 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 					mustNewElement(tag.PerformingPhysicianName, []string{performingPhysician}),
 					mustNewElement(tag.OperatorsName, []string{operatorName}),
 					mustNewElement(tag.BodyPartExamined, []string{bodyPartExamined}),
-					mustNewElement(tag.ProtocolName, []string{protocolName}),
+					mustNewElement(tag.ProtocolName, []string{seriesProtocolName}),
 					mustNewElement(tag.RequestedProcedureDescription, []string{requestedProcedureDescription}),
 					mustNewElement(tag.RequestedProcedurePriority, []string{requestedProcedurePriority}),
 					mustNewElement(tag.AccessionNumber, []string{accessionNumber}),
