@@ -112,6 +112,9 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^"([^"]*)" should contain (\d+) patient directories$`, tc.shouldContainPatientDirs)
 	sc.Step(`^"([^"]*)" should contain (\d+) series directories$`, tc.shouldContainSeriesDirs)
 	sc.Step(`^DICOM tag "([^"]*)" in "([^"]*)" should have value "([^"]*)" in some file$`, tc.dicomTagShouldExistInAnyFile)
+	// YAML config steps
+	sc.Step(`^a config file "([^"]*)" with:$`, tc.aConfigFileWith)
+	sc.Step(`^"([^"]*)" should contain "([^"]*)"$`, tc.fileShouldContain)
 }
 
 func (tc *testContext) dicomforgeIsBuilt() error {
@@ -455,4 +458,40 @@ func getDICOMTagValue(file, tagName string) (string, error) {
 	}
 
 	return "", fmt.Errorf("tag %s not found in dcmdump output for %s", tagName, file)
+}
+
+// aConfigFileWith creates a config file with the given content
+func (tc *testContext) aConfigFileWith(path string, content *godog.DocString) error {
+	path = strings.ReplaceAll(path, "{tmpdir}", tc.tmpDir)
+
+	// Also replace {tmpdir} in the content
+	fileContent := strings.ReplaceAll(content.Content, "{tmpdir}", tc.tmpDir)
+
+	// Create parent directory if needed
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create directory %s: %w", dir, err)
+	}
+
+	if err := os.WriteFile(path, []byte(fileContent), 0600); err != nil {
+		return fmt.Errorf("failed to write config file %s: %w", path, err)
+	}
+
+	return nil
+}
+
+// fileShouldContain checks if a file contains a specific string
+func (tc *testContext) fileShouldContain(path, expected string) error {
+	path = strings.ReplaceAll(path, "{tmpdir}", tc.tmpDir)
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("failed to read file %s: %w", path, err)
+	}
+
+	if !strings.Contains(string(content), expected) {
+		return fmt.Errorf("file %s does not contain %q\nContent:\n%s", path, expected, string(content))
+	}
+
+	return nil
 }
