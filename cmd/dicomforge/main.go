@@ -9,6 +9,7 @@ import (
 
 	"github.com/mrsinham/dicomforge/cmd/dicomforge/wizard"
 	"github.com/mrsinham/dicomforge/internal/dicom"
+	"github.com/mrsinham/dicomforge/internal/dicom/corruption"
 	"github.com/mrsinham/dicomforge/internal/dicom/edgecases"
 	"github.com/mrsinham/dicomforge/internal/dicom/modalities"
 	"github.com/mrsinham/dicomforge/internal/util"
@@ -68,6 +69,9 @@ func main() {
 	edgeCasePercentage := flag.Int("edge-cases", 0, "Percentage of patients with edge case variations (0-100)")
 	edgeCaseTypes := flag.String("edge-case-types", "special-chars,long-names,missing-tags,old-dates,varied-ids",
 		"Comma-separated edge case types to enable")
+
+	// Corruption options
+	corruptTypes := flag.String("corrupt", "", "Inject vendor-specific corruption: siemens-csa,ge-private,philips-private,malformed-lengths (or 'all')")
 
 	// Interactive wizard and config options
 	interactive := flag.Bool("interactive", false, "Launch interactive wizard")
@@ -237,6 +241,24 @@ func main() {
 		fmt.Printf("Edge cases: %d%% of patients with types %v\n", *edgeCasePercentage, types)
 	}
 
+	// Parse and validate corruption config
+	var corruptionConfig corruption.Config
+	if *corruptTypes != "" {
+		types, err := corruption.ParseTypes(*corruptTypes)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		corruptionConfig = corruption.Config{
+			Types: types,
+		}
+		if err := corruptionConfig.Validate(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Corruption: injecting %v\n", types)
+	}
+
 	// Create generator options
 	opts := dicom.GeneratorOptions{
 		NumImages:         *numImages,
@@ -256,6 +278,7 @@ func main() {
 		VariedMetadata:    *variedMetadata,
 		CustomTags:        parsedTags,
 		EdgeCaseConfig:    edgeCaseConfig,
+		CorruptionConfig:  corruptionConfig,
 	}
 
 	// Generate DICOM series
@@ -338,6 +361,14 @@ func printHelp() {
 	fmt.Println("  --edge-case-types <T> Comma-separated types: special-chars,long-names,")
 	fmt.Println("                        missing-tags,old-dates,varied-ids (default: all)")
 	fmt.Println()
+	fmt.Println("Corruption options (vendor-specific private tags for robustness testing):")
+	fmt.Println("  --corrupt <TYPES>     Comma-separated corruption types (or 'all'):")
+	fmt.Println("                        siemens-csa      - Siemens CSA private tags and crash-trigger SQ")
+	fmt.Println("                        ge-private       - GE GEMS private tags")
+	fmt.Println("                        philips-private  - Philips private tags and sequences")
+	fmt.Println("                        malformed-lengths - Elements with incorrect VR lengths")
+	fmt.Println("                        all              - All corruption types")
+	fmt.Println()
 	fmt.Println("  --help                Show this help message")
 	fmt.Println()
 	fmt.Println("Examples:")
@@ -373,6 +404,15 @@ func printHelp() {
 	fmt.Println()
 	fmt.Println("  # Generate CT with 3 series (contrast phases)")
 	fmt.Println("  dicomforge --num-images 300 --total-size 500MB --modality CT --series-per-study 3")
+	fmt.Println()
+	fmt.Println("  # Generate with Siemens CSA corruption (crash-trigger private tags)")
+	fmt.Println("  dicomforge --num-images 10 --total-size 10MB --corrupt siemens-csa")
+	fmt.Println()
+	fmt.Println("  # Generate with all corruption types for robustness testing")
+	fmt.Println("  dicomforge --num-images 10 --total-size 20MB --corrupt all")
+	fmt.Println()
+	fmt.Println("  # Combine corruption with edge cases")
+	fmt.Println("  dicomforge --num-images 10 --total-size 20MB --corrupt siemens-csa --edge-cases 50")
 	fmt.Println()
 	fmt.Println("Output:")
 	fmt.Println("  The program creates a DICOM series with:")

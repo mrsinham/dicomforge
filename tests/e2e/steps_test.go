@@ -30,7 +30,7 @@ func buildBinary() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("create temp file: %w", err)
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	// Get the directory of this test file to find the project root
 	_, thisFile, _, _ := runtime.Caller(0)
@@ -55,7 +55,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "Failed to build binary: %v\n", err)
 		os.Exit(1)
 	}
-	defer os.Remove(binaryPath)
+	defer func() { _ = os.Remove(binaryPath) }()
 
 	code := m.Run()
 	os.Exit(code)
@@ -92,7 +92,7 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	// Teardown: cleanup temp directory after each scenario
 	sc.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
 		if tc.tmpDir != "" {
-			os.RemoveAll(tc.tmpDir)
+			_ = os.RemoveAll(tc.tmpDir)
 		}
 		return ctx, nil
 	})
@@ -112,6 +112,9 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^"([^"]*)" should contain (\d+) patient directories$`, tc.shouldContainPatientDirs)
 	sc.Step(`^"([^"]*)" should contain (\d+) series directories$`, tc.shouldContainSeriesDirs)
 	sc.Step(`^DICOM tag "([^"]*)" in "([^"]*)" should have value "([^"]*)" in some file$`, tc.dicomTagShouldExistInAnyFile)
+	// dcmdump corruption steps
+	sc.Step(`^dcmdump output for "([^"]*)" should contain "([^"]*)"$`, tc.dcmdumpOutputShouldContain)
+	sc.Step(`^dcmdump warnings for "([^"]*)" should contain "([^"]*)"$`, tc.dcmdumpWarningsShouldContain)
 	// YAML config steps
 	sc.Step(`^a config file "([^"]*)" with:$`, tc.aConfigFileWith)
 	sc.Step(`^"([^"]*)" should contain "([^"]*)"$`, tc.fileShouldContain)
@@ -458,6 +461,52 @@ func getDICOMTagValue(file, tagName string) (string, error) {
 	}
 
 	return "", fmt.Errorf("tag %s not found in dcmdump output for %s", tagName, file)
+}
+
+func (tc *testContext) dcmdumpOutputShouldContain(path, expected string) error {
+	path = strings.ReplaceAll(path, "{tmpdir}", tc.tmpDir)
+
+	files, err := findDICOMFiles(path)
+	if err != nil {
+		return fmt.Errorf("failed to find DICOM files: %w", err)
+	}
+	if len(files) == 0 {
+		return fmt.Errorf("no DICOM files found in %s", path)
+	}
+
+	cmd := exec.Command("dcmdump", files[0])
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	cmd.Run() //nolint:errcheck // exit code may be non-zero for malformed files
+
+	combined := stdout.String() + stderr.String()
+	if !strings.Contains(combined, expected) {
+		return fmt.Errorf("dcmdump output does not contain %q\nStdout:\n%s\nStderr:\n%s", expected, stdout.String(), stderr.String())
+	}
+	return nil
+}
+
+func (tc *testContext) dcmdumpWarningsShouldContain(path, expected string) error {
+	path = strings.ReplaceAll(path, "{tmpdir}", tc.tmpDir)
+
+	files, err := findDICOMFiles(path)
+	if err != nil {
+		return fmt.Errorf("failed to find DICOM files: %w", err)
+	}
+	if len(files) == 0 {
+		return fmt.Errorf("no DICOM files found in %s", path)
+	}
+
+	cmd := exec.Command("dcmdump", files[0])
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	cmd.Run() //nolint:errcheck // exit code expected to be non-zero for malformed files
+
+	if !strings.Contains(stderr.String(), expected) {
+		return fmt.Errorf("dcmdump stderr does not contain %q\nStderr:\n%s", expected, stderr.String())
+	}
+	return nil
 }
 
 // aConfigFileWith creates a config file with the given content

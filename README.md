@@ -147,6 +147,7 @@ dicomforge wizard --from myconfig.yaml
 | `--workers` | Number of parallel workers | CPU core count |
 | `--edge-cases` | Percentage of patients with edge case variations (0-100) | `0` |
 | `--edge-case-types` | Comma-separated edge case types to enable | all types |
+| `--corrupt` | Vendor corruption types (comma-separated, or `all`) | disabled |
 | `--help` | Show help message | - |
 
 ### Modality Support
@@ -182,6 +183,33 @@ When using `--edge-cases`, you can specify which types to enable with `--edge-ca
 | `varied-ids` | Patient IDs with dashes, letters, spaces, or at max length |
 | `missing-tags` | Omit optional DICOM tags (BodyPartExamined, StudyDescription, etc.) |
 
+### Vendor Corruption (Robustness Testing)
+
+The `--corrupt` flag injects vendor-specific private DICOM tags and malformed elements into **all** generated files, reproducing real-world scanner quirks that crash fragile DICOM readers. This is based on real corrupted files observed from Siemens scanners in production.
+
+```bash
+# Inject all corruption types
+dicomforge --num-images 10 --total-size 10MB --corrupt all
+
+# Inject only Siemens CSA private tags
+dicomforge --num-images 10 --total-size 10MB --corrupt siemens-csa
+
+# Combine multiple types
+dicomforge --num-images 10 --total-size 10MB --corrupt siemens-csa,ge-private
+```
+
+| Type | Description |
+|------|-------------|
+| `siemens-csa` | Siemens CSA private tags: creator `(0029,0010)`, CSA Image Header `(0029,1010)` and Series Header `(0029,1020)` with realistic "SV10" binary format, crash-trigger private SQ `(0029,1102)` |
+| `ge-private` | GE GEMS private tags: creators `(0009,0010)` + `(0043,0010)`, software version `(0009,10E3)`, multi-valued diffusion params `(0043,1039)` |
+| `philips-private` | Philips private tags: creators `(2001,0010)` + `(2005,0010)`, nested private sequence `(2005,100E)` with scale/intercept data |
+| `malformed-lengths` | Reproduces real dcmdump warnings: `(0070,0253)` FL with length not multiple of 4, `(7FE0,0010)` PixelData OW with odd byte count |
+| `all` | Shorthand for all corruption types |
+
+> **Note:** Unlike `--edge-cases` (percentage-based, per-patient), corruption applies to **all** generated files when enabled. The `--corrupt` and `--edge-cases` flags can be used together.
+
+> **[See Examples Guide](docs/EXAMPLES.md#vendor-corruption-for-robustness-testing)** for detailed corruption examples and use cases.
+
 ### Examples
 
 ```bash
@@ -215,6 +243,15 @@ When using `--edge-cases`, you can specify which types to enable with `--edge-ca
 
 # Generate all edge case types for comprehensive testing
 ./dicomforge --num-images 50 --total-size 500MB --num-studies 10 --num-patients 10 --edge-cases 50
+
+# Generate corrupted DICOM files for robustness testing
+./dicomforge --num-images 10 --total-size 10MB --corrupt all
+
+# Generate with Siemens crash-trigger private tags
+./dicomforge --num-images 10 --total-size 10MB --corrupt siemens-csa
+
+# Combine corruption and edge cases
+./dicomforge --num-images 20 --total-size 20MB --corrupt siemens-csa,ge-private --edge-cases 50
 ```
 
 ## Output Structure
@@ -248,6 +285,7 @@ This hierarchy follows the DICOM standard and is compatible with:
 - **Realistic metadata**: Simulated parameters from major vendors (Siemens, GE, Philips, Canon)
 - **Realistic patient names**: Generated patient names (80% English, 20% French)
 - **Edge case generation**: Special characters, long names, old dates, varied IDs for robustness testing
+- **Vendor corruption**: Inject Siemens CSA, GE GEMS, Philips private tags and malformed elements for parser robustness testing
 - **Reproducible output**: Same seed produces identical files
 - **Window/Level tags**: Proper display settings for DICOM viewers
 
@@ -296,6 +334,7 @@ go test -v ./...
 ├── cmd/dicomforge/            # CLI entry point
 ├── internal/
 │   ├── dicom/                 # DICOM generation and DICOMDIR
+│   │   ├── corruption/        # Vendor-specific corruption tags
 │   │   ├── edgecases/         # Edge case generation
 │   │   └── modalities/        # Modality-specific generators (MR, CT, CR, DX, US, MG)
 │   ├── image/                 # Pixel data generation

@@ -433,3 +433,55 @@ Feature: DICOM Generation
     Then the exit code should be 0
     And "{tmpdir}/output" should contain 2 DICOM files
     And DICOM tag "PatientName" in "{tmpdir}/output" should contain "SIMPLE^TEST"
+
+  # Vendor corruption tags
+
+  Scenario: Generate with Siemens CSA corruption
+    Given dicomforge is built
+    When I run dicomforge with "--num-images 2 --total-size 200KB --corrupt siemens-csa --output {tmpdir}"
+    Then the exit code should be 0
+    And "{tmpdir}" should contain 2 DICOM files
+    And dcmdump should successfully parse all files in "{tmpdir}"
+    And dcmdump output for "{tmpdir}" should contain "SIEMENS CSA HEADER"
+    And dcmdump output for "{tmpdir}" should contain "CSAImageHeaderInfo"
+    And dcmdump output for "{tmpdir}" should contain "CSASeriesHeaderInfo"
+    And dcmdump output for "{tmpdir}" should contain "(0029,1102) SQ"
+
+  Scenario: Generate with GE private corruption
+    Given dicomforge is built
+    When I run dicomforge with "--num-images 2 --total-size 200KB --corrupt ge-private --output {tmpdir}"
+    Then the exit code should be 0
+    And "{tmpdir}" should contain 2 DICOM files
+    And dcmdump should successfully parse all files in "{tmpdir}"
+    And dcmdump output for "{tmpdir}" should contain "GEMS_IDEN_01"
+    And dcmdump output for "{tmpdir}" should contain "GEMS_PARM_01"
+    And dcmdump output for "{tmpdir}" should contain "(0043,1039) IS"
+
+  Scenario: Generate with Philips private corruption
+    Given dicomforge is built
+    When I run dicomforge with "--num-images 2 --total-size 200KB --corrupt philips-private --output {tmpdir}"
+    Then the exit code should be 0
+    And "{tmpdir}" should contain 2 DICOM files
+    And dcmdump should successfully parse all files in "{tmpdir}"
+    And dcmdump output for "{tmpdir}" should contain "Philips Imaging DD 001"
+    And dcmdump output for "{tmpdir}" should contain "Philips MR Imaging DD 001"
+    And dcmdump output for "{tmpdir}" should contain "(2005,100e) SQ"
+
+  Scenario: Generate with malformed lengths corruption
+    Given dicomforge is built
+    When I run dicomforge with "--num-images 2 --total-size 200KB --corrupt malformed-lengths --output {tmpdir}"
+    Then the exit code should be 0
+    And "{tmpdir}" should contain 2 DICOM files
+    And dcmdump warnings for "{tmpdir}" should contain "Length of element (0070,0253) is not a multiple of 4"
+
+  Scenario: Invalid corruption type
+    Given dicomforge is built
+    When I run dicomforge with "--num-images 2 --total-size 200KB --corrupt invalid-type --output {tmpdir}"
+    Then the exit code should be 1
+    And the output should contain "unknown corruption type"
+
+  Scenario: Corruption all shorthand
+    Given dicomforge is built
+    When I run dicomforge with "--num-images 2 --total-size 200KB --corrupt all --output {tmpdir}"
+    Then the exit code should be 0
+    And "{tmpdir}" should contain 2 DICOM files

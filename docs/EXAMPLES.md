@@ -13,6 +13,7 @@ This guide provides detailed examples for all features of dicomforge. Each secti
 - [Custom DICOM Tags](#custom-dicom-tags)
 - [Categorization Options](#categorization-options)
 - [Edge Cases for Robustness Testing](#edge-cases-for-robustness-testing)
+- [Vendor Corruption for Robustness Testing](#vendor-corruption-for-robustness-testing)
 - [Reproducibility](#reproducibility)
 - [Performance Tuning](#performance-tuning)
 - [Real-World Scenarios](#real-world-scenarios)
@@ -513,6 +514,146 @@ dicomforge --num-images 100 --total-size 1GB \
 
 ---
 
+## Vendor Corruption for Robustness Testing
+
+The `--corrupt` flag injects vendor-specific private DICOM tags and intentionally malformed elements into generated files. This reproduces real-world scanner behavior that breaks fragile DICOM parsers.
+
+**Origin:** This feature was motivated by real Siemens MRI scanners producing files with private sequences at `(0029,1102)` and malformed value lengths that crashed medical imaging platforms. The corruption flag lets you generate these problematic files on demand to harden your platform.
+
+### Key Difference from Edge Cases
+
+- **`--edge-cases`**: Percentage-based, applied per-patient (some patients are affected, others aren't)
+- **`--corrupt`**: Applied to **all** generated files (every single file gets the corrupted tags)
+
+Both flags can be used together.
+
+### Quick Start
+
+```bash
+# Inject all corruption types
+dicomforge --num-images 5 --total-size 10MB --corrupt all --output corrupt_test
+
+# Only Siemens private tags
+dicomforge --num-images 5 --total-size 10MB --corrupt siemens-csa
+
+# Multiple specific types
+dicomforge --num-images 5 --total-size 10MB --corrupt siemens-csa,malformed-lengths
+```
+
+### Corruption Types
+
+#### `siemens-csa` - Siemens CSA Private Tags
+
+Injects the private tags written by real Siemens MRI scanners:
+
+| Tag | VR | Content |
+|-----|-----|---------|
+| `(0029,0010)` | LO | Private creator: `"SIEMENS CSA HEADER"` |
+| `(0029,1010)` | OB | CSA Image Header (~4-15KB, starts with `SV10` magic bytes) |
+| `(0029,1020)` | OB | CSA Series Header (~2-8KB, starts with `SV10` magic bytes) |
+| `(0029,1102)` | SQ | Private sequence with nested elements (~9KB) - **this is the crash trigger** |
+
+The CSA headers follow the real Siemens "SV10" binary format with element tables containing names, VMs, VRs, SyngoDT values, and padded item data. The CSA Image Header includes realistic fields like `NumberOfImagesInMosaic`, `SliceNormalVector`, `B_value`, `BandwidthPerPixelPhaseEncode`, etc.
+
+```bash
+# Generate files that mimic real Siemens scanner output
+dicomforge --num-images 10 --total-size 10MB --corrupt siemens-csa --output siemens_test
+```
+
+#### `ge-private` - GE GEMS Private Tags
+
+Injects GE Medical Systems private tags:
+
+| Tag | VR | Content |
+|-----|-----|---------|
+| `(0009,0010)` | LO | Private creator: `"GEMS_IDEN_01"` |
+| `(0043,0010)` | LO | Private creator: `"GEMS_PARM_01"` |
+| `(0009,10E3)` | LO | Software version (e.g., `"DV26.4_42_M5"`) |
+| `(0043,1039)` | IS | Diffusion parameters (4 multi-valued integers) |
+
+```bash
+dicomforge --num-images 10 --total-size 10MB --corrupt ge-private --output ge_test
+```
+
+#### `philips-private` - Philips Private Tags
+
+Injects Philips MR private tags with nested sequences:
+
+| Tag | VR | Content |
+|-----|-----|---------|
+| `(2001,0010)` | LO | Private creator: `"Philips Imaging DD 001"` |
+| `(2005,0010)` | LO | Private creator: `"Philips MR Imaging DD 001"` |
+| `(2005,100E)` | SQ | Private sequence with scale slope/intercept data |
+
+```bash
+dicomforge --num-images 10 --total-size 10MB --corrupt philips-private --output philips_test
+```
+
+#### `malformed-lengths` - Incorrect VR Lengths
+
+Reproduces the exact `dcmdump` warnings observed in real corrupted Siemens files:
+
+```
+W: DcmItem: Length of element (0070,0253) is not a multiple of 4 (VR=FL)
+W: DcmItem: Length of element (7fe0,0010) is not a multiple of 2 (VR=OW)
+```
+
+| Malformation | Description |
+|------|-------------|
+| `(0070,0253)` FL | LineThickness tag with value length = 7 (not divisible by 4) |
+| `(7FE0,0010)` OW | PixelData tag with odd value length (not divisible by 2) |
+
+These malformations are applied via binary post-processing after the DICOM file is written, producing byte-level accurate reproductions of the real scanner output.
+
+```bash
+dicomforge --num-images 5 --total-size 10MB --corrupt malformed-lengths --output malformed_test
+```
+
+### Real-World Scenarios
+
+#### Platform Robustness Testing
+
+Generate files that reproduce known scanner problems to verify your platform handles them gracefully:
+
+```bash
+# Full robustness test with all corruption + edge cases
+dicomforge --num-images 50 --total-size 100MB \
+  --num-patients 10 \
+  --corrupt all \
+  --edge-cases 50 \
+  --output robustness_test
+```
+
+#### PACS Import Stress Test
+
+Test that your PACS can import files with vendor-specific private tags without crashing:
+
+```bash
+# Mixed vendor tags across a large dataset
+dicomforge --num-images 500 --total-size 5GB \
+  --num-studies 50 --num-patients 25 \
+  --corrupt siemens-csa,ge-private,philips-private \
+  --output pacs_stress_test
+```
+
+#### Parser Validation
+
+Validate that your DICOM parser handles malformed lengths correctly (skip, warn, or reject):
+
+```bash
+dicomforge --num-images 5 --total-size 10MB \
+  --corrupt malformed-lengths \
+  --output parser_test
+
+# Then inspect with dcmdump:
+# dcmdump parser_test/PT000000/ST000000/SE000000/IM000001
+# Expected warnings:
+#   W: DcmItem: Length of element (0070,0253) is not a multiple of 4 (VR=FL)
+#   W: DcmItem: Length of element (7fe0,0010) is not a multiple of 2 (VR=OW)
+```
+
+---
+
 ## Reproducibility
 
 Use seeds for deterministic output - identical data across runs.
@@ -679,6 +820,7 @@ dicomforge --num-images 4 --total-size 400MB \
 | `--varied-metadata` | `false` | Vary institutions/physicians |
 | `--edge-cases N` | `0` | Percentage with edge cases (0-100) |
 | `--edge-case-types LIST` | all | Comma-separated edge case types |
+| `--corrupt TYPES` | disabled | Vendor corruption: `siemens-csa`, `ge-private`, `philips-private`, `malformed-lengths`, or `all` |
 | `--workers N` | CPU cores | Parallel workers |
 | `--help` | - | Show help |
 | `--version` | - | Show version |

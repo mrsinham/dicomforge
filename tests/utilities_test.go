@@ -242,9 +242,9 @@ func TestUtil_PatientNameFormat(t *testing.T) {
 				// DICOM allows: A-Z, 0-9, space, and some special chars
 				// For French names we also expect accented characters
 				if c != '^' && c != ' ' && c != '-' && c != '\'' &&
-					!(c >= 'A' && c <= 'Z') &&
-					!(c >= 'a' && c <= 'z') &&
-					!(c >= 'À' && c <= 'ÿ') { // Accented characters
+					(c < 'A' || c > 'Z') &&
+					(c < 'a' || c > 'z') &&
+					(c < 'À' || c > 'ÿ') { // Accented characters
 					t.Logf("⚠ Name contains potentially problematic character '%c': %s", c, name)
 				}
 			}
