@@ -56,7 +56,7 @@ func PatchMalformedLengths(filePath string) error {
 		return nil // Nothing to patch
 	}
 
-	return os.WriteFile(filePath, data, 0644)
+	return os.WriteFile(filePath, data, 0600)
 }
 
 // patchTagValueLength finds a DICOM tag in binary data and patches its value length.
