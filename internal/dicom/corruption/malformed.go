@@ -14,11 +14,8 @@ import (
 //	W: DcmItem: Length of element (0070,0253) is not a multiple of 4 (VR=FL)
 //	W: DcmItem: Length of element (7fe0,0010) is not a multiple of 2 (VR=OW)
 //	(0029,1102) SQ (Sequence with explicit length #=1)  # 9434, 1 Unknown Tag & Data
-var (
-	// (0070,0253) LineThickness - standard FL tag.
-	// Real Siemens files have this with a value length not divisible by 4.
-	malformedFLTag = tag.Tag{Group: 0x0070, Element: 0x0253}
-)
+// Target tag: (0070,0253) LineThickness - standard FL tag.
+// Real Siemens files have this with a value length not divisible by 4.
 
 // generateMalformedPlaceholders creates placeholder elements at the target tags.
 // These are valid elements that will be patched with incorrect lengths after writing.
