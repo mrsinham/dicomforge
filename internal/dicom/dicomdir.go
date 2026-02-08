@@ -193,6 +193,48 @@ func getStringValue(ds dicom.Dataset, t tag.Tag) []string {
 	return []string{str}
 }
 
+// parseDICOMTolerant parses a DICOM file element-by-element, tolerating errors
+// in individual elements (e.g., malformed VR lengths from corruption).
+// It collects all successfully parsed elements and returns them as a dataset.
+func parseDICOMTolerant(filepath string) (dicom.Dataset, error) {
+	f, err := os.Open(filepath)
+	if err != nil {
+		return dicom.Dataset{}, err
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		return dicom.Dataset{}, err
+	}
+
+	p, err := dicom.NewParser(f, info.Size(), nil, dicom.SkipPixelData())
+	if err != nil {
+		return dicom.Dataset{}, err
+	}
+
+	var elements []*dicom.Element
+	for {
+		elem, err := p.Next()
+		if err != nil {
+			// Stop on any error - we've collected what we can
+			break
+		}
+		elements = append(elements, elem)
+	}
+
+	if len(elements) == 0 {
+		return dicom.Dataset{}, fmt.Errorf("no elements parsed")
+	}
+
+	ds := dicom.Dataset{Elements: elements}
+	// Include metadata elements from the parser
+	meta := p.GetMetadata()
+	ds.Elements = append(meta.Elements, ds.Elements...)
+
+	return ds, nil
+}
+
 // createDICOMDIRFile creates a complete DICOMDIR file with directory record sequence
 func createDICOMDIRFile(outputDir string) error {
 	dicomdirPath := filepath.Join(outputDir, "DICOMDIR")
@@ -256,8 +298,10 @@ func createDICOMDIRFile(outputDir string) error {
 				sort.Strings(imageFiles)
 
 				for _, imageFile := range imageFiles {
-					// Parse DICOM file
-					ds, err := dicom.ParseFile(imageFile, nil)
+					// Parse DICOM file with tolerance for malformed elements.
+					// Uses element-by-element parsing to handle files with intentionally
+					// corrupted tags (e.g., from --corrupt malformed-lengths).
+					ds, err := parseDICOMTolerant(imageFile)
 					if err != nil {
 						continue
 					}

@@ -12,6 +12,9 @@ import (
 	"runtime"
 	"sync"
 
+	"sort"
+
+	"github.com/mrsinham/dicomforge/internal/dicom/corruption"
 	"github.com/mrsinham/dicomforge/internal/dicom/edgecases"
 	"github.com/mrsinham/dicomforge/internal/dicom/modalities"
 	"github.com/mrsinham/dicomforge/internal/util"
@@ -25,14 +28,14 @@ import (
 )
 
 // writeDatasetToFile writes a DICOM dataset to a file
-func writeDatasetToFile(filename string, ds dicom.Dataset) error {
+func writeDatasetToFile(filename string, ds dicom.Dataset, opts ...dicom.WriteOption) error {
 	f, err := os.Create(filename)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 
-	return dicom.Write(f, ds)
+	return dicom.Write(f, ds, opts...)
 }
 
 // drawTextOnFrame16 draws large text overlay on a uint16 frame
@@ -285,6 +288,9 @@ type GeneratorOptions struct {
 	// Edge case generation
 	EdgeCaseConfig edgecases.Config // Edge case generation config
 
+	// Corruption generation (vendor-specific private tags and malformed elements)
+	CorruptionConfig corruption.Config
+
 	// Output control
 	Quiet            bool                    // Suppress progress output (for TUI integration)
 	ProgressCallback func(current, total int) // Optional callback for progress updates
@@ -350,9 +356,11 @@ type imageTask struct {
 	height           int
 	filePath         string
 	textOverlay      string
-	pixelSeed        uint64 // Deterministic seed for this image's pixel generation
-	metadata         []*dicom.Element
-	pixelConfig      modalities.PixelConfig // Modality-specific pixel configuration
+	pixelSeed          uint64 // Deterministic seed for this image's pixel generation
+	metadata           []*dicom.Element
+	pixelConfig        modalities.PixelConfig // Modality-specific pixel configuration
+	writeOpts          []dicom.WriteOption    // Write options (e.g., SkipVRVerification for corruption)
+	hasMalformedLengths bool                  // Whether to apply malformed length post-processing
 	// Result info
 	studyUID       string
 	seriesUID      string
@@ -476,7 +484,18 @@ func generateImageFromTask(task imageTask) error {
 	elements[len(task.metadata)] = mustNewElement(tag.PixelData, pixelDataInfo)
 
 	// Write DICOM file
-	return writeDatasetToFile(task.filePath, dicom.Dataset{Elements: elements})
+	if err := writeDatasetToFile(task.filePath, dicom.Dataset{Elements: elements}, task.writeOpts...); err != nil {
+		return err
+	}
+
+	// Apply malformed length post-processing if needed
+	if task.hasMalformedLengths {
+		if err := corruption.PatchMalformedLengths(task.filePath); err != nil {
+			return fmt.Errorf("patch malformed lengths: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // CalculateDimensions calculates optimal image dimensions based on total size and number of images
@@ -603,6 +622,12 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 	var edgeCaseApplicator *edgecases.Applicator
 	if opts.EdgeCaseConfig.IsEnabled() {
 		edgeCaseApplicator = edgecases.NewApplicator(opts.EdgeCaseConfig, rng)
+	}
+
+	// Create corruption applicator if enabled
+	var corruptionApplicator *corruption.Applicator
+	if opts.CorruptionConfig.IsEnabled() {
+		corruptionApplicator = corruption.NewApplicator(opts.CorruptionConfig, rng)
 	}
 
 	// Generate or use predefined patients
@@ -1121,6 +1146,26 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 				}
 				metadata = ds.Elements
 
+				// Add corruption elements if enabled
+				var taskWriteOpts []dicom.WriteOption
+				var taskHasMalformedLengths bool
+				if corruptionApplicator != nil {
+					corruptionElements := corruptionApplicator.GenerateCorruptionElements()
+					metadata = append(metadata, corruptionElements...)
+
+					// Sort metadata by (Group, Element) so private tags (e.g., 0x0009)
+					// are placed before standard tags they might precede
+					sort.Slice(metadata, func(i, j int) bool {
+						if metadata[i].Tag.Group != metadata[j].Tag.Group {
+							return metadata[i].Tag.Group < metadata[j].Tag.Group
+						}
+						return metadata[i].Tag.Element < metadata[j].Tag.Element
+					})
+
+					taskWriteOpts = []dicom.WriteOption{dicom.SkipVRVerification(), dicom.SkipValueTypeVerification()}
+					taskHasMalformedLengths = corruptionApplicator.HasMalformedLengths()
+				}
+
 				// Generate deterministic pixel seed for this specific image
 				pixelSeedHash := fnv.New64a()
 				_, _ = pixelSeedHash.Write([]byte(fmt.Sprintf("%d_pixel_%d", seed, globalImageIndex)))
@@ -1130,22 +1175,24 @@ func GenerateDICOMSeries(opts GeneratorOptions) ([]GeneratedFile, error) {
 				filePath := filepath.Join(opts.OutputDir, filename)
 
 				tasks = append(tasks, imageTask{
-					globalIndex:      globalImageIndex,
-					instanceInStudy:  instanceInStudy,
-					instanceInSeries: instanceInSeries,
-					seriesNumber:     seriesNum,
-					width:            width,
-					height:           height,
-					filePath:         filePath,
-					textOverlay:      fmt.Sprintf("File %d/%d", globalImageIndex, opts.NumImages),
-					pixelSeed:        pixelSeed,
-					metadata:         metadata,
-					pixelConfig:      pixelConfig,
-					studyUID:         studyUID,
-					seriesUID:        seriesUID,
-					sopInstanceUID:   sopInstanceUID,
-					patientID:        patient.ID,
-					studyID:          studyID,
+					globalIndex:         globalImageIndex,
+					instanceInStudy:     instanceInStudy,
+					instanceInSeries:    instanceInSeries,
+					seriesNumber:        seriesNum,
+					width:               width,
+					height:              height,
+					filePath:            filePath,
+					textOverlay:         fmt.Sprintf("File %d/%d", globalImageIndex, opts.NumImages),
+					pixelSeed:           pixelSeed,
+					metadata:            metadata,
+					pixelConfig:         pixelConfig,
+					writeOpts:           taskWriteOpts,
+					hasMalformedLengths: taskHasMalformedLengths,
+					studyUID:            studyUID,
+					seriesUID:           seriesUID,
+					sopInstanceUID:      sopInstanceUID,
+					patientID:           patient.ID,
+					studyID:             studyID,
 				})
 
 				globalImageIndex++
